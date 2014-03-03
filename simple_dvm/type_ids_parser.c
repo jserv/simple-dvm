@@ -9,7 +9,8 @@
 void parse_type_ids(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i = 0;
-    printf("parse type ids offset = %04x\n", offset + sizeof(DexHeader));
+    if (is_verbose() > 3)
+        printf("parse type ids offset = %04x\n", offset + sizeof(DexHeader));
     dex->type_id_item = malloc(
                             sizeof(type_id_item) * dex->header.typeIdsSize);
 
@@ -44,7 +45,8 @@ void parse_proto_ids(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     volatile int i = 0, j = 0;
     int idx = 0;
-    printf("parse proto ids offset = %04x\n", offset + sizeof(DexHeader));
+    if (is_verbose() > 3)
+        printf("parse proto ids offset = %04x\n", offset + sizeof(DexHeader));
     dex->proto_id_item = malloc(
                              sizeof(proto_id_item) * dex->header.protoIdsSize);
 
@@ -63,7 +65,9 @@ void parse_proto_ids(DexFileFormat *dex, unsigned char *buf, int offset)
                    dex->proto_id_item[i].parameters_off);
         if (dex->proto_id_item[i].parameters_off == 0)
             continue;
-        printf(" proto_typ_list[%d] offset %p ", i, buf + dex->proto_id_item[i].parameters_off - sizeof(DexHeader));
+        if (is_verbose() > 3)
+            printf(" proto_typ_list[%d] offset %p ", i,
+                   buf + dex->proto_id_item[i].parameters_off - sizeof(DexHeader));
         memcpy(&dex->proto_type_list[i].size,
                buf + dex->proto_id_item[i].parameters_off - sizeof(DexHeader),
                sizeof(int));
@@ -93,7 +97,6 @@ void parse_proto_ids(DexFileFormat *dex, unsigned char *buf, int offset)
             }
         }
     }
-    printf("exit parse_proto_ids\n");
 }
 
 proto_id_item *get_proto_item(DexFileFormat *dex, int proto_id)
@@ -113,7 +116,8 @@ type_list *get_proto_type_list(DexFileFormat *dex, int proto_id)
 void parse_field_ids(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i;
-    printf("parse feild ids offset = %04x\n", offset + sizeof(DexHeader));
+    if (is_verbose() > 3)
+        printf("parse feild ids offset = %04x\n", offset + sizeof(DexHeader));
     dex->field_id_item = malloc(sizeof(field_id_item) * dex->header.fieldIdsSize);
 
     if (is_verbose() > 3)

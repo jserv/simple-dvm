@@ -38,7 +38,8 @@ static void parse_string_data_item(DexFileFormat *dex,
 void parse_string_ids(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i = 0;
-    printf("parse string ids offset = %04x\n", offset + sizeof(DexHeader));
+    if (is_verbose() > 3)
+        printf("parse string ids offset = %04x\n", offset + sizeof(DexHeader));
     dex->string_ids = malloc(
                           sizeof(string_ids) * dex->header.stringIdsSize);
     dex->string_data_item = malloc(

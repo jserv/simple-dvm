@@ -17,7 +17,7 @@ int java_lang_math_random(DexFileFormat *dex, simple_dalvik_vm *vm, char *type)
     for (i = 0; i < times; i++)
         r = ((double) rand() / (double) RAND_MAX);
 
-    printf("get random number = %f \n", r);
+    if (is_verbose() > 3) printf("get random number = %f \n", r);
     store_double_to_result(vm, (unsigned char *) &r);
     load_result_to_double(vm, (unsigned char *) &test);
 

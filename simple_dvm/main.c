@@ -23,14 +23,8 @@ int main(int argc, char *argv[])
     if (argc >= 3)
         set_verbose(atoi(argv[2]));
     parseDexFile(argv[1], &dex);
-    printDexFile(&dex);
-    printf("-------------------------------------\n");
-    printf("Execute Simple Dalvik Virtual Machine\n");
-    printf("-------------------------------------\n");
+    if (is_verbose() > 3) printDexFile(&dex);
     simple_dvm_startup(&dex, &vm, "main");
-    printf("-------------------------------------\n");
-    printf("Stop    Simple Dalvik Virtual Machine\n");
-    printf("-------------------------------------\n");
 
     return 0;
 }

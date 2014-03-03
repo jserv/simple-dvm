@@ -100,9 +100,11 @@ static void parse_map_item(DexFileFormat *dex,
 void parse_map_list(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i = 0;
-    printf("parse map_list offset = %04x\n", offset + sizeof(DexHeader));
+    if (is_verbose() > 3)
+        printf("parse map_list offset = %04x\n", offset + sizeof(DexHeader));
     memcpy(&dex->map_list.size , buf + offset, 4);
-    printf("map_list size = %d\n", dex->map_list.size);
+    if (is_verbose() > 3)
+        printf("map_list size = %d\n", dex->map_list.size);
     if (dex->map_list.size > 0) {
         dex->map_list.map_item = malloc(sizeof(map_item) * dex->map_list.size);
         for (i = 0 ; i < dex->map_list.size; i++)

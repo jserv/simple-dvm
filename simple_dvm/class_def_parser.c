@@ -84,7 +84,7 @@ static void parse_class_data_item(DexFileFormat *dex,
         dex->class_data_item[index].direct_methods = (encoded_method *)
                 malloc(sizeof(encoded_method) *
                        dex->class_data_item[index].direct_methods_size);
-        for (j = 0 ; j < dex->class_data_item[index].direct_methods_size; j++) {
+        for (j = 0; j < dex->class_data_item[index].direct_methods_size; j++) {
             if (is_verbose() > 3)
                 printf("offset = %04x ", i + sizeof(DexHeader));
             dex->class_data_item[index].direct_methods[j].method_idx_diff =
@@ -115,7 +115,8 @@ static void parse_class_data_item(DexFileFormat *dex,
 void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i = 0;
-    printf("parse class defs offset = %04x\n", offset + sizeof(DexHeader));
+    if (is_verbose() > 3)
+        printf("parse class defs offset = %04x\n", offset + sizeof(DexHeader));
     if (dex->header.classDefsSize <= 0)
         return;
     dex->class_def_item = malloc(
