@@ -6,6 +6,8 @@
 .deps
 .libs
 *.a
+simple_jvm/jvm
+simple_dvm/dvm
 
 # gcov output
 *.gcda
