@@ -1,0 +1,18 @@
+# compiling output
+*.dat
+*.la
+*.lo
+*.o
+.deps
+.libs
+*.a
+
+# gcov output
+*.gcda
+*.gcno
+*.gcov
+/coverage.info
+/coveragereport
+
+# cscope output
+cscope.*
