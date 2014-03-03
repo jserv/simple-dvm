@@ -20,17 +20,14 @@ static int parseMethodAttr(MethodInfo *ptr, FILE *fp)
     AttributeInfo *tmp = 0;
     unsigned char short_tmp[2];
     unsigned char integer_tmp[4];
-    printf("method attributes_count = %d\n", ptr->attributes_count);
     for (i = 0; i < ptr->attributes_count; i++) {
         tmp = &ptr->attributes[i];
         fread(short_tmp, 2, 1, fp);
         tmp->attribute_name_index = short_tmp[0] << 8 | short_tmp[1];
-        printf("method tmp->attribute_name_index = %d\n", tmp->attribute_name_index);
         fread(integer_tmp, 4, 1, fp);
         tmp->attribute_length = integer_tmp[0] << 24 | integer_tmp[1] << 16 |
                                 integer_tmp[2] <<  8 | integer_tmp[3];
 
-        printf("method tmp->attribute_length = %d\n", tmp->attribute_length);
         tmp->info = (unsigned char *) malloc(sizeof(unsigned char) * tmp->attribute_length);
         fread(tmp->info, tmp->attribute_length, 1, fp);
     }

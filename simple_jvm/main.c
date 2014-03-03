@@ -38,7 +38,6 @@ int main(int argc, char *argv[])
         printf("%s [class] \n", argv[0]);
         return 0;
     }
-    printf("open file %s\n", argv[1]);
     parseJavaClassFile(argv[1], &cff);
 
 #if SIMPLE_JVM_DEBUG
@@ -47,26 +46,16 @@ int main(int argc, char *argv[])
     printClassFileFormat(&cff);
 #endif
 
-    /* TODO: list method attributes */
-    printf("-------------------------------------\n");
-    printf("Execute Simple JVM\n");
-    printf("-------------------------------------\n");
     MethodInfo *init = findMethodInPool(&simpleConstantPool,
                                         &simpleMethodPool,
                                         "<init>", 6);
     if (init != 0) {
-        printf("-------------------------------------\n");
-        printf("find and execute <init> method\n");
-        printf("-------------------------------------\n");
 #if SIMPLE_JVM_DEBUG
         printMethodAttributes(&simpleConstantPool, init);
 #endif
         stackInit(&stackFrame, 500);
         executeMethod(init, &stackFrame, &simpleConstantPool);
     }
-    printf("-------------------------------------\n");
-    printf("Terminate Simple JVM\n");
-    printf("-------------------------------------\n");
     free_pools();
 
     return 0;
