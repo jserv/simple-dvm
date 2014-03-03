@@ -9,6 +9,10 @@
 simple_jvm/jvm
 simple_dvm/dvm
 
+# tests
+output-jvm
+output-dvm
+
 # gcov output
 *.gcda
 *.gcno
