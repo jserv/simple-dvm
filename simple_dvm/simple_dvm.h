@@ -98,6 +98,20 @@ typedef struct _encoded_method {
     code_item code_item;
 } encoded_method;
 
+typedef struct _encoded_field {
+    /*  https://ntu-android-2014.hackpad.com/Notes-and-QAs-for-Homework-3-SZVgjTYruKX
+        http://source.android.com/devices/tech/dalvik/dex-format.html
+        LEB128 :
+        . a variable-length encoding for arbitrary signed or unsigned integer quantities
+        . DWARF3
+        . In a .dex file, LEB128 is only ever used to encode 32-bit quantities
+          => 1 ~ 5 bytes
+          => So, we can safely use 'uint'
+     */
+    uint field_idx_diff;
+    uint access_flags;
+} encoded_field;
+
 typedef struct _class_def_item {
     uint class_idx;
     uint access_flags;
@@ -115,6 +129,9 @@ typedef struct _class_data_item {
     uint direct_methods_size;
     uint virtual_methods_size;
 
+    /* ref : https://ntu-android-2014.hackpad.com/Notes-and-QAs-for-Homework-3-SZVgjTYruKX */
+    encoded_field *static_fields;
+    encoded_field *instance_fields;
     encoded_method *direct_methods;
     encoded_method *virtual_methods;
 } class_data_item;

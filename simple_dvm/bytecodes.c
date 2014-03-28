@@ -28,7 +28,7 @@ static void printRegs(simple_dalvik_vm *vm)
         printf("pc = %08x\n", vm->pc);
         for (i = 0; i < 16 ; i++) {
             printf("Reg[%2d] = %4d (%04x) ",
-                   i, vm->regs[i], vm->regs[i]);
+                   i, *((int *)&vm->regs[i]), *((unsigned int *)&vm->regs[i]));
             if ((i + 1) % 4 == 0) printf("\n");
         }
     }
@@ -590,7 +590,8 @@ static int op_add_double_2addr(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr
 
     if (is_verbose()) {
         printf("add-double/2addr v%d, v%d\n", reg_idx_vx, reg_idx_vy);
-        printf("%f(%llx) + %f(%llx) = %f\n", x, x, y, y , y + x);
+        printf("%f(%llx) + %f(%llx) = %f\n",
+               x, *((long long unsigned int *)&x), y, *((long long unsigned int *)&y) , y + x);
     }
     x = x + y;
     store_double_to_reg(vm, reg_idx_vx, ptr_x + 4);
@@ -693,7 +694,15 @@ static byteCode byteCodes[] = {
     { "mul-double/2addr"  , 0xcd, 2,  op_mul_double_2addr},
     { "div-int/lit8"      , 0xdb, 4,  op_div_int_lit8 }
 };
-static byteCode_size = sizeof(byteCodes) / sizeof(byteCode);
+static size_t byteCode_size = sizeof(byteCodes) / sizeof(byteCode);
+
+/**
+    0007f4: 2310 1e00                              |0002: new-array v0, v1, [I // type@001e
+    0007f8: 6900 0500                              |0004: sput-object v0, LGlobalVariables;.Array_Glob_1:[I // field@0005
+    0007fc: 2420 1e00 1100                         |0006: filled-new-array {v1, v1}, [I // type@001e
+    000810: 1f00 2000                              |0010: check-cast v0, [[I // type@0020
+
+ */
 
 static opCodeFunc findOpCodeFunc(unsigned char op)
 {
@@ -728,10 +737,11 @@ void runMethod(DexFileFormat *dex, simple_dalvik_vm *vm, encoded_method *m)
 
 void simple_dvm_startup(DexFileFormat *dex, simple_dalvik_vm *vm, char *entry)
 {
-    int i = 0;
+    int i = 0, j = 0;
     int method_name_idx = -1;
     int method_idx = -1;
     int class_idx = -1;
+    int direct_method_index = -1;
 
     method_name_idx = find_const_string(dex, entry);
 
@@ -739,27 +749,50 @@ void simple_dvm_startup(DexFileFormat *dex, simple_dalvik_vm *vm, char *entry)
         printf("no method %s in dex\n", entry);
         return;
     }
+
     for (i = 0 ; i < dex->header.methodIdsSize; i++)
         if (dex->method_id_item[i].name_idx == method_name_idx) {
-            if (is_verbose() > 2)
-                printf("find %s in class_idx[%d], method_id = %d\n",
-                       entry, i - 1, i);
-            class_idx = i - 1;
+            int cls_id = dex->method_id_item[i].class_idx;
             method_idx = i;
+
+            for (j = 0; j < dex->header.classDefsSize; j++) {
+                if (dex->class_def_item[j].class_idx == cls_id) {
+                    class_idx = j;
+                    break;
+                }
+            }
+
+            if (is_verbose() > 2)
+                printf("find %s in class_defs[%d], method_id = %d\n",
+                       entry, class_idx, method_idx);
             break;
         }
-    if (class_idx < 0 || method_idx < 0) {
+
+    int offset = 0;
+    for (i = 0; i < dex->class_data_item[class_idx].direct_methods_size; ++i) {
+      offset += dex->class_data_item[class_idx].direct_methods[i].method_idx_diff;
+      if (offset == method_idx) {
+        if (is_verbose() > 2) {
+          printf("find method %d in class of class_id[%d]\n", i, class_idx);
+        }
+        direct_method_index = i;
+        break;
+      }
+    }
+
+    if (class_idx < 0 || method_idx < 0 || direct_method_index < 0) {
         printf("no method %s in dex\n", entry);
         return;
     }
-
+    fflush(stdout);
     encoded_method *m =
-        &dex->class_data_item[class_idx].direct_methods[method_idx];
+        &dex->class_data_item[class_idx].direct_methods[direct_method_index];
 
     if (is_verbose() > 2)
         printf("encoded_method method_id = %d, insns_size = %d\n",
                m->method_idx_diff, m->code_item.insns_size);
 
+    fflush(stdout);
     memset(vm , 0, sizeof(simple_dalvik_vm));
     runMethod(dex, vm, m);
 }
