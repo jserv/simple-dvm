@@ -11,12 +11,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef signed char s1;
 typedef short u2;
+typedef long long int s8;
+
 typedef unsigned int u4;
 typedef unsigned int uint;
 typedef unsigned char u1;
 typedef unsigned short ushort;
 typedef unsigned char byte;
+typedef unsigned long long u8;
 
 /* map_list */
 typedef struct _map_item {
@@ -241,6 +245,9 @@ void load_result_to_double(simple_dalvik_vm *vm, unsigned char *ptr);
 void store_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 void store_double_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 void store_double_to_result(simple_dalvik_vm *vm, unsigned char *ptr);
+
+void load_reg_to_long(simple_dalvik_vm *vm, int id, unsigned char *ptr);
+void store_long_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 
 void move_top_half_result_to_reg(simple_dalvik_vm *vm, int id);
 void move_bottom_half_result_to_reg(simple_dalvik_vm *vm, int id);

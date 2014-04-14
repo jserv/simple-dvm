@@ -110,3 +110,33 @@ void move_bottom_half_result_to_reg(simple_dalvik_vm *vm, int id)
     r->data[2] = vm->result[6];
     r->data[3] = vm->result[7];
 }
+
+void load_reg_to_long(simple_dalvik_vm *vm, int id, unsigned char *ptr)
+{
+    simple_dvm_register *r = &vm->regs[id];
+    ptr[0] = r->data[2];
+    ptr[1] = r->data[3];
+    ptr[2] = r->data[0];
+    ptr[3] = r->data[1];
+}
+
+void store_long_to_result(simple_dalvik_vm *vm, unsigned char *ptr)
+{
+    vm->result[0] = ptr[2];
+    vm->result[1] = ptr[3];
+    vm->result[2] = ptr[0];
+    vm->result[3] = ptr[1];
+    vm->result[4] = ptr[6];
+    vm->result[5] = ptr[7];
+    vm->result[6] = ptr[4];
+    vm->result[7] = ptr[5];
+}
+
+void store_long_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr)
+{
+    simple_dvm_register *r = &vm->regs[id];
+    r->data[0] = ptr[2];
+    r->data[1] = ptr[3];
+    r->data[2] = ptr[0];
+    r->data[3] = ptr[1];
+}

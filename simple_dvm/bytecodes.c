@@ -34,6 +34,165 @@ static void printRegs(simple_dalvik_vm *vm)
     }
 }
 
+/*
+    { "move"              , 0x01, 2,  op_move },
+    { "goto"              , 0x28, 2,  op_goto },
+    { "if-ge"             , 0x35, 4,  op_if_ge },
+    { "long-to-int"       , 0x84, 2,  op_long_to_int},
+    { "sub-long/2addr"    , 0xbc, 2,  op_sub_long_2addr },
+    { "add-int/lit8"      , 0xd8, 4,  op_add_int_lit8 },
+ */
+
+/* move vx,vy
+ * Moves the content of vy into vx. Both registers must be in the first 256
+ * register range.
+ *
+ * 0110 - move v0, v1   Moves v1 into v0.
+ */
+static int op_move(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int reg_idx_vx = ptr[*pc + 1] & 0x0F;
+    int reg_idx_vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    if (is_verbose())
+        printf("move v%d,v%d\n", reg_idx_vx, reg_idx_vy);
+    simple_dvm_register *rx = &vm->regs[reg_idx_vx];
+    simple_dvm_register *ry = &vm->regs[reg_idx_vy];
+    rx->data[0] = ry->data[0];
+    rx->data[1] = ry->data[1];
+    rx->data[2] = ry->data[2];
+    rx->data[3] = ry->data[3];
+    *pc = *pc + 2;
+    return 0;
+}
+
+/* goto target
+ * Unconditional jump by short offset
+ *
+ * 28F0 - goto 0005 // -0010
+ * Jumps to current position-16 words (hex 10). 0005 is the label of the target
+ * instruction.
+ */
+static int op_goto(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    s1 offset = (s1) ptr[*pc + 1];
+    if (is_verbose()) {
+        printf("goto %d\n", (int) offset);
+    }
+    *pc = *pc + offset * 2;
+    return 0;
+}
+
+/* if-ge vx, vy,target
+ * Jumps to target if vx>=vy. vx and vy are integer values.
+ *
+ * 3510 1B00 - if-ge v0, v1, 002b // +001b
+ * Jumps to the current position+1BH words if v0>=v1. 002b is the label of the
+ * target instruction.
+ */
+static int op_if_ge(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int reg_idx_vx = ptr[*pc + 1] & 0x0F;
+    int reg_idx_vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    int offset = (int) ptr[*pc + 2] + (int) ptr[*pc + 3] * (int) 256;
+    int x, y;
+    load_reg_to(vm, reg_idx_vy, (unsigned char *) &y);
+    load_reg_to(vm, reg_idx_vx, (unsigned char *) &x);
+
+    if (is_verbose()) {
+        printf("if-ge v%d (%d), v%d (%d), %d\n", reg_idx_vx, x, reg_idx_vy, y, offset);
+    }
+    if(x >= y)
+        *pc = *pc + offset * 2;
+    else
+        *pc = *pc + 4;
+    return 0;
+}
+
+/* long-to-int vx,vy
+ * Converts the long value in vy,vy+1 into an integer in vx.
+ *
+ * 8424 - long-to-int v4, v2
+ * Converts the long value in v2,v3 into an integer value in v4.
+ */
+static int op_long_to_int(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int reg_idx_vx = 0;
+    int reg_idx_vy = 0;
+    int reg_idx_vz = 0;
+    long l = 0;
+    unsigned char *ptr_l = (unsigned char *) &l;
+    int i = 0;
+    int i2 = 0 ;
+    reg_idx_vx = ptr[*pc + 1] & 0x0F;
+    reg_idx_vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    reg_idx_vz = reg_idx_vy + 1;
+    load_reg_to_long(vm, reg_idx_vy , ptr_l + 4);
+    load_reg_to_long(vm, reg_idx_vz , ptr_l);
+    i = (int)l;
+    if (is_verbose()) {
+        printf("long-to-int v%d, v%d\n", reg_idx_vx, reg_idx_vy);
+        printf("(%ld) to (%d) \n", l , i);
+    }
+    store_to_reg(vm, reg_idx_vx, (unsigned char *) &i);
+    *pc = *pc + 2;
+    return 0;
+}
+
+/* sub-long/2addr vx,vy
+ * Calculates vx-vy and puts the result into vx
+ *
+ * BC70 - sub-long/2addr v0, v7
+ * Subtracts the long value in v7,v8 from the long value in v0,v1 and puts the
+ * result into v0,v1.
+ */
+static int op_sub_long_2addr(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int reg_idx_vx = ptr[*pc + 1] & 0x0F;
+    int reg_idx_vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    long x = 0L, y = 0L;
+    unsigned char *ptr_x = (unsigned char *) &x;
+    unsigned char *ptr_y = (unsigned char *) &y;
+    load_reg_to_long(vm, reg_idx_vx, ptr_x + 4);
+    load_reg_to_long(vm, reg_idx_vx + 1, ptr_x);
+
+    load_reg_to_long(vm, reg_idx_vy, ptr_y + 4);
+    load_reg_to_long(vm, reg_idx_vy + 1, ptr_y);
+    if (is_verbose()) {
+        printf("sub-long/2addr v%d, v%d\n", reg_idx_vx, reg_idx_vy);
+        printf("%ld - %ld = %ld\n", x, y, x - y);
+    }
+    x = x - y;
+    store_long_to_reg(vm, reg_idx_vx, ptr_x + 4);
+    store_long_to_reg(vm, reg_idx_vx + 1, ptr_x);
+    *pc = *pc + 2;
+    return 0;
+}
+
+/* add-int/lit8 vx,vy,lit8
+ * Adds vy to lit8 and stores the result into vx.
+ *
+ * D800 0201 - add-int/lit8 v0,v2, #int1
+ * Adds literal 1 to v2 and stores the result into v0.
+ */
+static int op_add_int_lit8(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int reg_idx_vx = 0;
+    int reg_idx_vy = 0;
+    int x = 0, y = 0 ;
+    int z = 0;
+    reg_idx_vx = ptr[*pc + 1];
+    reg_idx_vy = ptr[*pc + 2];
+    z = ptr[*pc + 3];
+    if (is_verbose())
+        printf("add-int v%d, v%d, #int%d\n", reg_idx_vx, reg_idx_vy, z);
+    /* x = y + z */
+    load_reg_to(vm, reg_idx_vy, (unsigned char *) &y);
+    x = y + z;
+    store_to_reg(vm, reg_idx_vx, (unsigned char *) &x);
+    *pc = *pc + 4;
+    return 0;
+}
+
 /* 0x0b, move-result-wide
  *
  * Move the long/double result value of the previous method invocation
@@ -335,6 +494,40 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
     return 0;
 }
 
+/* iput-wide vx,vy, field_id
+ * Puts the wide value located in vx and vx+1 registers into an instance field.
+ * The instance is referenced by vy.
+ *
+ * 5A20 0000 - iput-wide v0,v2, Test2.d0:D // field@0000
+ * Stores the wide value in v0, v1 registers into field@0000 (entry #0 in the
+ * field id table). The instance is referenced by v2.
+ *
+ * (dhry) dh.Number_Of_Runs = Long.valueOf(rdr.readLine()).longValue();
+ */
+static int op_iput_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
+    int reg_idx_vx = ptr[*pc + 1] & 0x0F;
+    int reg_idx_vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    u4 field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
+
+    u8 val = 0;
+    u4 *_pval = (u4 *)&val;
+    u4 instance = 0;
+
+    load_reg_to_long(vm, reg_idx_vx, (u1 *)&_pval[0]);
+    load_reg_to_long(vm, reg_idx_vx+1, (u1 *)&_pval[1]);
+    load_reg_to(vm, reg_idx_vy, (u1 *)&instance);
+
+    //load_reg_to(vm, reg_idx_vx, (unsigned char *) &);
+    *pc = *pc + 4;
+
+    if (is_verbose()) {
+        //printf("iput-wide v%d, v%d, field %x (val=lld%, instance=%x)\n", reg_idx_vx, reg_idx_vy, field_id, val, instance);
+        printf("iput-wide v%d, v%d, field 0x%04x (val=%lld L, instance=%x)\n",
+               reg_idx_vx, reg_idx_vy, field_id, val, instance);
+    }
+
+    return 0;
+}
 
 /* invoke-virtual { parameters }, methodtocall */
 /*
@@ -398,6 +591,27 @@ static int op_sget_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
         printf("sget-object v%d, field 0x%04x\n", reg_idx_vx, field_id);
     }
     store_to_reg(vm, reg_idx_vx, (unsigned char *) &field_id);
+    /* TODO */
+    *pc = *pc + 4;
+    return 0;
+}
+
+/* 0x69 sput-object vx,field_id
+ * Puts object reference in vx into a static field.
+ * 6900 0c00 - sput-object v0, Test3.os1:Ljava/lang/Object; // field@000c
+ * Puts the object reference value in v0 into the field@000c static field (entry #CH in the field id table).
+ */
+static int op_sput_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int field_id = 0;
+    int reg_idx_vx = 0;
+    reg_idx_vx = ptr[*pc + 1];
+    field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
+
+    if (is_verbose()) {
+        printf("sput-object v%d, field 0x%04x\n", reg_idx_vx, field_id);
+    }
+    load_reg_to(vm, reg_idx_vx, (unsigned char *) &field_id);
     /* TODO */
     *pc = *pc + 4;
     return 0;
@@ -672,6 +886,13 @@ static int op_div_int_lit8(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
 }
 
 static byteCode byteCodes[] = {
+    { "move"              , 0x01, 2,  op_move },
+    { "goto"              , 0x28, 2,  op_goto },
+    { "if-ge"             , 0x35, 4,  op_if_ge },
+    { "long-to-int"       , 0x84, 2,  op_long_to_int},
+    { "sub-long/2addr"    , 0xbc, 2,  op_sub_long_2addr },
+    { "add-int/lit8"      , 0xd8, 4,  op_add_int_lit8 },
+
     { "move-result-wide"  , 0x0B, 2,  op_move_result_wide },
     { "move-result-object", 0x0C, 2,  op_move_result_object },
     { "return-void"       , 0x0e, 2,  op_return_void },
@@ -680,7 +901,12 @@ static byteCode byteCodes[] = {
     { "const-wide/high16" , 0x19, 4,  op_const_wide_high16 },
     { "const-string"      , 0x1a, 4,  op_const_string },
     { "new-instance"      , 0x22, 4,  op_new_instance },
+
+    { "iput-wide"         , 0x5a, 4,  op_iput_wide },
+
     { "sget-object"       , 0x62, 4,  op_sget_object },
+    { "sput-object"       , 0x69, 4,  op_sput_object },
+
     { "invoke-virtual"    , 0x6e, 6,  op_invoke_virtual },
     { "invoke-direct"     , 0x70, 6,  op_invoke_direct },
     { "invoke-static"     , 0x71, 6,  op_invoke_static },

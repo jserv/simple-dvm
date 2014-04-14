@@ -13,15 +13,16 @@ static void printDexHeader(DexHeader *dex)
     printf("Magic Number = ");
     for (i = 0 ; i < 8 ; i++)
         printf("0x%02x ", dex->magic[i]);
-    printf("( ");
+    /*printf("( ");
     for (i = 0 ; i < 8 ; i++)
         if (dex->magic[i] != '\n') {
             printf("%c", dex->magic[i]);
         } else {
             printf("\\n");
         }
-    printf(" )\n");
+    printf(" )\n");*/
 
+    printf("\n");
     printf("Checksum      = ");
     for (i = 3 ; i >= 0 ; i--)
         printf("%02x ", dex->checksum[i]);
