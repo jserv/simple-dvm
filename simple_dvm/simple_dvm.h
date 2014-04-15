@@ -113,7 +113,7 @@ typedef struct _encoded_field {
           => 1 ~ 5 bytes
           => So, we can safely use 'uint'
      */
-    uint field_idx_diff;
+    uint field_id;  /* Note! we store id not index diff! */
     uint access_flags;
 } encoded_field;
 
@@ -140,6 +140,11 @@ typedef struct _static_data {
     int intValue;
     long longValue;
     char *objectValue;
+    /*  e.g. Msg.out = System.err;
+     *  out is a static object, err is an object, out will actually point to err
+     *  (My understanding)
+     */
+    int actual_obj_field_id;
 } static_data;
 
 typedef struct _class_def_item {

@@ -45,19 +45,24 @@ static encoded_field * load_encoded_field(unsigned char *buf, int offset,
                                           int count, int *size)
 {
     int j, i = offset;
+    int field_id = 0;
     int num_byte = 0;
     encoded_field * sfields = (encoded_field *)
         malloc(sizeof(encoded_field) * count);
 
     for (j = 0; j < count; j++) {
-        sfields[j].field_idx_diff = get_uleb128_len(buf, i, &num_byte);
+        int field_idx_diff = get_uleb128_len(buf, i, &num_byte);
         i += num_byte;
+
+        field_id += field_idx_diff;
+        sfields[j].field_id = field_id;
+
         sfields[j].access_flags = get_uleb128_len(buf, i, &num_byte);
         i += num_byte;
 
         if (is_verbose() > 3)
-            printf("    . field_idx_diff = %d, access_flags = %04x\n",
-                   sfields[j].field_idx_diff, sfields[j].access_flags);
+            printf("    . field_id = %d (field_idx_diff = %d), access_flags = %04x\n",
+                   sfields[j].field_id, field_idx_diff, sfields[j].access_flags);
     }
 
     *size = i - offset;
@@ -106,16 +111,33 @@ static long read_encoded_value (unsigned char *buf, int *offset, int byteLength)
     return (value << shift) >> shift;
 }
 
-static static_data * parse_static_data_item(unsigned char *buf, int static_data_offset)
+void parse_static_data_item(unsigned char *buf, int static_data_offset,
+                            static_data *sdata)
 {
     assert(static_data_offset > 0);
+
     int size = 0, j;
     int offset = static_data_offset - sizeof(DexHeader);
 
+    /*  Note! len may <= num_elements_of(sdata)
+     *  in dex-format (Android website) :
+     *  static_values_off uint
+     *  - offset from the start of the file to the list of initial values for
+     *    static fields, or 0 if there are none
+     *  - the elements correspond to the static fields in the same order as
+     *    declared in the corresponding field_list
+     *  - the type of each array element must match the declared type of its
+     *    corresponding field
+     *  - If there are fewer elements in the array than there are static fields,
+     *    then the leftover fields are initialized with a type-appropriate 0 or
+     *    null
+     */
+
+    /*  TODO :
+     *  - Necessary type check
+     */
     int len = get_uleb128_len(buf, offset, &size);
     offset += size;
-    static_data *sdata = (static_data *)malloc(sizeof(static_data) * len);
-    memset(sdata, 0, sizeof(static_data) * len);
 
     printf("    offset = 0x%x, len = %d\n", static_data_offset, len);
     for (j = 0; j < len; ++j) {
@@ -167,15 +189,12 @@ static static_data * parse_static_data_item(unsigned char *buf, int static_data_
                    valueType, valueArgument, sdata[j].intValue, sdata[j].longValue, sdata[j].objectValue);
         }
     }
-
-    return sdata;
 }
 
 static void parse_class_data_item(DexFileFormat *dex,
                                   unsigned char *buf, int offset, int index)
 {
     int i = 0;
-    int j = 0;
     int size = 0;
     int len = 0;
     int static_fields_size = 0;
@@ -255,18 +274,27 @@ static void parse_class_data_item(DexFileFormat *dex,
 
     // load static data :
     if (static_fields_size > 0) {
+        int j;
         const uint static_values_off = dex->class_def_item[index].static_values_off;
         if (is_verbose() > 3) {
             printf("  - load static data value\n");
         }
 
+        static_data *sdata = (static_data *)malloc(sizeof(static_data) * static_fields_size);
+        memset(sdata, 0, sizeof(static_data) * static_fields_size);
+
+        for (j = 0; j < static_fields_size; j++) {
+            /* actual_obj_field_id may be changed in sput-object */
+            sdata[j].actual_obj_field_id =
+                dex->class_data_item[index].static_fields[j].field_id;
+        }
+
         if (static_values_off > 0) {
-            dex->class_data_item[index].sdata =
-                parse_static_data_item(buf, static_values_off);
+            parse_static_data_item(buf, static_values_off, sdata);
         } else {
             printf("    (None Value)\n");
         }
-
+        dex->class_data_item[index].sdata = sdata;
     }
 }
 
