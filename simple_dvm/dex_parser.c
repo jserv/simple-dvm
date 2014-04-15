@@ -59,6 +59,7 @@ int parseDexFile(char *file, DexFileFormat *dex)
 {
     FILE *fp = 0;
     unsigned char *buf = 0;
+    size_t read_count;
 
     fp = fopen(file, "rb");
     if (fp == 0) {
@@ -66,12 +67,27 @@ int parseDexFile(char *file, DexFileFormat *dex)
         return -1;
     }
     memset(dex, 0, sizeof(dex));
-    fread(&dex->header, sizeof(DexHeader), 1, fp);
+    read_count = fread(&dex->header, sizeof(DexHeader), 1, fp);
+    if (read_count != 1) {
+        printf("Reading dex header error (expect : %d, actual : %zd)\n",
+               1, read_count);
+        return -1;
+    }
+
+    /* NOTE! So buf doesn't contain dex header, so the all kind of offset value
+     * should minus sizeof(DexHeader)
+     */
     buf = (unsigned char *) malloc(
               sizeof(u1) * (dex->header.fileSize - sizeof(DexHeader)));
 
     /* read all value into buf */
-    fread(buf, (dex->header.fileSize - sizeof(DexHeader)), 1, fp);
+    read_count = fread(buf, (dex->header.fileSize - sizeof(DexHeader)), 1, fp);
+    if (read_count != 1) {
+        printf("Reading whole dex file error (expect : %d, actual : %zd)\n",
+               1, read_count);
+        return -1;
+    }
+
     fclose(fp);
 
     parse_map_list(dex, buf, dex->header.mapOff - sizeof(DexHeader));
@@ -83,8 +99,15 @@ int parseDexFile(char *file, DexFileFormat *dex)
     parse_class_defs(dex, buf, dex->header.classDefsOff - sizeof(DexHeader));
 
     if (dex->header.dataSize > 0) {
+        assert(dex->header.dataSize == dex->header.fileSize - dex->header.dataOff);
         dex->data = malloc(sizeof(u1) * dex->header.dataSize);
-        memcpy(dex->data, buf, dex->header.dataOff - sizeof(DexHeader));
+        memcpy(dex->data, buf + dex->header.dataOff - sizeof(DexHeader),
+               sizeof(u1) * dex->header.dataSize);
+
+        if (is_verbose() > 3) {
+            printf("copy data part, offset = 0x%x, size = %d\n",
+                   dex->header.dataOff, dex->header.dataSize);
+        }
     }
 
     free(buf);

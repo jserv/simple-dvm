@@ -5,6 +5,7 @@
  */
 
 #include "simple_dvm.h"
+#include <assert.h>
 
 static void parse_encoded_method(unsigned char *buf, encoded_method *method)
 {
@@ -93,6 +94,83 @@ static encoded_method * load_encoded_method(unsigned char *buf, int offset,
     return method;
 }
 
+static long read_encoded_value (unsigned char *buf, int *offset, int byteLength)
+{
+    long value = 0;
+    int i = 0;
+    int shift = 8 * byteLength;
+    for (i = 0; i < byteLength; i++) {
+        value |= (long)buf[*offset] << (8 * i);
+        *offset = *offset + 1;
+    }
+    return (value << shift) >> shift;
+}
+
+static static_data * parse_static_data_item(unsigned char *buf, int static_data_offset)
+{
+    assert(static_data_offset > 0);
+    int size = 0, j;
+    int offset = static_data_offset - sizeof(DexHeader);
+
+    int len = get_uleb128_len(buf, offset, &size);
+    offset += size;
+    static_data *sdata = (static_data *)malloc(sizeof(static_data) * len);
+    memset(sdata, 0, sizeof(static_data) * len);
+
+    printf("    offset = 0x%x, len = %d\n", static_data_offset, len);
+    for (j = 0; j < len; ++j) {
+        int data = 0;
+        /* read 1 byte */
+        memcpy(&data, buf + offset, 1);
+        ++offset;
+        int valueType = data & 0x1F;
+        int valueArgument = data >> 5;
+        switch(valueType){
+            case VALUE_BYTE : {
+                sdata[j].intValue = (byte)read_encoded_value(buf, &offset, 1);
+                break;
+            }
+            case VALUE_CHAR : {
+                sdata[j].intValue = (char)read_encoded_value(buf, &offset, valueArgument + 1);
+                break;
+            }
+            case VALUE_SHORT : {
+                sdata[j].intValue = (short)read_encoded_value(buf, &offset, valueArgument + 1);
+                break;
+            }
+            case VALUE_INT : {
+                sdata[j].intValue = (int)read_encoded_value(buf, &offset, valueArgument + 1);
+                break;
+            }
+            case VALUE_LONG : {
+                sdata[j].longValue = (long)read_encoded_value(buf, &offset, valueArgument + 1);
+                break;
+            }
+            case VALUE_STRING : {
+                //sdata[j].objectValue = strings[(int)readValueByTypeArgument(valueArgument)];
+                break;
+            }
+            case VALUE_NULL : {
+                sdata[j].objectValue = NULL;
+                break;
+            }
+            case VALUE_BOOLEAN : {
+                sdata[j].intValue = valueArgument;
+                break;
+            }
+            default : {
+                printf("Error ! Unknow type id (0x%x)\n", valueType);
+            }
+        }
+        if (is_verbose() > 3) {
+            printf("    . type 0x%x, arg %d, value = (int, long, obj) = 0x%x, 0x%lx, %s\n",
+                   valueType, valueArgument, sdata[j].intValue, sdata[j].longValue, sdata[j].objectValue);
+        }
+    }
+
+    return sdata;
+}
+
 static void parse_class_data_item(DexFileFormat *dex,
                                   unsigned char *buf, int offset, int index)
 {
@@ -173,6 +251,22 @@ static void parse_class_data_item(DexFileFormat *dex,
         dex->class_data_item[index].virtual_methods =
             load_encoded_method(buf, i, virtual_methods_size, &size);
         i += size;
+    }
+
+    // load static data :
+    if (static_fields_size > 0) {
+        const uint static_values_off = dex->class_def_item[index].static_values_off;
+        if (is_verbose() > 3) {
+            printf("  - load static data value\n");
+        }
+
+        if (static_values_off > 0) {
+            dex->class_data_item[index].sdata =
+                parse_static_data_item(buf, static_values_off);
+        } else {
+            printf("    (None Value)\n");
+        }
+
     }
 }
 
