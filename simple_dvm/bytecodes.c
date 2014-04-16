@@ -596,22 +596,28 @@ static int op_sget_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
     return 0;
 }
 
-/* 0x69 sput-object vx,field_id
- * Puts object reference in vx into a static field.
- * 6900 0c00 - sput-object v0, Test3.os1:Ljava/lang/Object; // field@000c
- * Puts the object reference value in v0 into the field@000c static field (entry #CH in the field id table).
+/*  0x69 sput-object vx, field_id
+ *  . Puts object reference in vx (reg_idx_vx) into a static field (dst_field_id).
+ *  . 6900 0c00 - sput-object v0, Test3.os1:Ljava/lang/Object; // field@000c
+ *    Puts the object reference value in v0 into the field@000c static field
+ *    (entry #CH in the field id table).
  */
 static int op_sput_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
 {
-    int field_id = 0;
-    int reg_idx_vx = 0;
-    reg_idx_vx = ptr[*pc + 1];
-    field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
+    int reg_idx_vx = ptr[*pc + 1];
+    int dst_field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
+    int src_field_id = 0;
+    load_reg_to(vm, reg_idx_vx, (unsigned char *) &src_field_id);
+
+    /* get static_data by dst_field_id
+    ushort class_id = dex->field_id_item[dst_field_id].class_idx;
+
+    dex->class_data_item[index].sdata[j].actual_obj_field_id = src_field_id;
 
     if (is_verbose()) {
         printf("sput-object v%d, field 0x%04x\n", reg_idx_vx, field_id);
-    }
-    load_reg_to(vm, reg_idx_vx, (unsigned char *) &field_id);
+    }*/
+
     /* TODO */
     *pc = *pc + 4;
     return 0;
@@ -994,10 +1000,8 @@ void simple_dvm_startup(DexFileFormat *dex, simple_dalvik_vm *vm, char *entry)
             break;
         }
 
-    int offset = 0;
     for (i = 0; i < dex->class_data_item[class_idx].direct_methods_size; ++i) {
-      offset += dex->class_data_item[class_idx].direct_methods[i].method_idx_diff;
-      if (offset == method_idx) {
+      if (dex->class_data_item[class_idx].direct_methods[i].method_id == method_idx) {
         if (is_verbose() > 2) {
           printf("find method %d in class of class_id[%d]\n", i, class_idx);
         }
@@ -1010,15 +1014,14 @@ void simple_dvm_startup(DexFileFormat *dex, simple_dalvik_vm *vm, char *entry)
         printf("no method %s in dex\n", entry);
         return;
     }
-    fflush(stdout);
+
     encoded_method *m =
         &dex->class_data_item[class_idx].direct_methods[direct_method_index];
 
     if (is_verbose() > 2)
         printf("encoded_method method_id = %d, insns_size = %d\n",
-               m->method_idx_diff, m->code_item.insns_size);
+               m->method_id, m->code_item.insns_size);
 
-    fflush(stdout);
     memset(vm , 0, sizeof(simple_dalvik_vm));
     runMethod(dex, vm, m);
 }

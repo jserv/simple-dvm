@@ -113,7 +113,7 @@ typedef struct _encoded_field {
           => 1 ~ 5 bytes
           => So, we can safely use 'uint'
      */
-    uint field_id;  /* Note! we store id not index diff! */
+    uint field_id;  /* Note! we store id, not index diff! */
     uint access_flags;
 } encoded_field;
 
