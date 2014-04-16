@@ -97,7 +97,7 @@ typedef struct _code_item {
 } code_item;
 
 typedef struct _encoded_method {
-    uint method_idx_diff;
+    uint method_id;
     uint access_flags;
     uint code_off;
     code_item code_item;

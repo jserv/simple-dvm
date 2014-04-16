@@ -13,7 +13,7 @@ static void parse_encoded_method(unsigned char *buf, encoded_method *method)
     int offset = 0;
 
     if (is_verbose() > 3)
-        printf("    . parse encoded method\n");
+        printf("      (parsing encoded method)\n");
     offset = method->code_off - sizeof(DexHeader);
 
     memcpy(&method->code_item.registers_size, buf + offset, sizeof(ushort));
@@ -73,12 +73,15 @@ static encoded_method * load_encoded_method(unsigned char *buf, int offset,
                                             int count, int *size)
 {
     int j, i = offset;
+    int method_id = 0;
     int num_byte = 0;
     encoded_method * method = (encoded_method *)
         malloc(sizeof(encoded_method) * count);
 
     for (j = 0; j < count; j++) {
-        method[j].method_idx_diff = get_uleb128_len(buf, i, &num_byte);
+        int method_idx_diff = get_uleb128_len(buf, i, &num_byte);
+        method_id += method_idx_diff;
+        method[j].method_id = method_id;
         i += num_byte;
         method[j].access_flags = get_uleb128_len(buf, i, &num_byte);
         i += num_byte;
@@ -86,8 +89,9 @@ static encoded_method * load_encoded_method(unsigned char *buf, int offset,
         i += num_byte;
 
         if (is_verbose() > 3)
-            printf("    . encoded_method, method_idx_diff = %d, access_flag = %04x, code_off = %04x\n",
-                   method[j].method_idx_diff,
+            printf("    . encoded_method, method_id = %d (method_idx_diff = %d), access_flag = %04x, code_off = %04x\n",
+                   method[j].method_id,
+                   method_idx_diff,
                    method[j].access_flags,
                    method[j].code_off);
 
