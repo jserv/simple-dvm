@@ -116,7 +116,7 @@ static long read_encoded_value (unsigned char *buf, int *offset, int byteLength)
 }
 
 void parse_static_data_item(unsigned char *buf, int static_data_offset,
-                            static_data *sdata)
+                            static_field_data *sdata)
 {
     assert(static_data_offset > 0);
 
@@ -153,35 +153,36 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
         int valueArgument = data >> 5;
         switch(valueType){
             case VALUE_BYTE : {
-                sdata[j].intValue = (byte)read_encoded_value(buf, &offset, 1);
+                sdata[j].int_value = (byte)read_encoded_value(buf, &offset, 1);
                 break;
             }
             case VALUE_CHAR : {
-                sdata[j].intValue = (char)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].int_value = (char)read_encoded_value(buf, &offset, valueArgument + 1);
                 break;
             }
             case VALUE_SHORT : {
-                sdata[j].intValue = (short)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].int_value = (short)read_encoded_value(buf, &offset, valueArgument + 1);
                 break;
             }
             case VALUE_INT : {
-                sdata[j].intValue = (int)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].int_value = (int)read_encoded_value(buf, &offset, valueArgument + 1);
                 break;
             }
             case VALUE_LONG : {
-                sdata[j].longValue = (long)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].long_value = (long)read_encoded_value(buf, &offset, valueArgument + 1);
                 break;
             }
+            /*
             case VALUE_STRING : {
                 //sdata[j].objectValue = strings[(int)readValueByTypeArgument(valueArgument)];
                 break;
             }
             case VALUE_NULL : {
-                sdata[j].objectValue = NULL;
+                //sdata[j].objectValue = NULL;
                 break;
-            }
+            }*/
             case VALUE_BOOLEAN : {
-                sdata[j].intValue = valueArgument;
+                sdata[j].int_value = valueArgument;
                 break;
             }
             default : {
@@ -189,8 +190,8 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
             }
         }
         if (is_verbose() > 3) {
-            printf("    . type 0x%x, arg %d, value = (int, long, obj) = 0x%x, 0x%lx, %s\n",
-                   valueType, valueArgument, sdata[j].intValue, sdata[j].longValue, sdata[j].objectValue);
+            printf("    . type 0x%x, arg %d, value = (int, long) = 0x%x, 0x%lx\n",
+                   valueType, valueArgument, sdata[j].int_value, sdata[j].long_value);
         }
     }
 }
@@ -284,13 +285,11 @@ static void parse_class_data_item(DexFileFormat *dex,
             printf("  - load static data value\n");
         }
 
-        static_data *sdata = (static_data *)malloc(sizeof(static_data) * static_fields_size);
-        memset(sdata, 0, sizeof(static_data) * static_fields_size);
+        static_field_data *sdata = (static_field_data *)malloc(sizeof(static_field_data) * static_fields_size);
+        memset(sdata, 0, sizeof(static_field_data) * static_fields_size);
 
         for (j = 0; j < static_fields_size; j++) {
-            /* actual_obj_field_id may be changed in sput-object */
-            sdata[j].actual_obj_field_id =
-                dex->class_data_item[index].static_fields[j].field_id;
+            sdata[j].obj.ref_count = 1;
         }
 
         if (static_values_off > 0) {
@@ -327,5 +326,39 @@ void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset)
         }
         parse_class_data_item(dex, buf,
                               dex->class_def_item[i].class_data_off - sizeof(DexHeader), i);
+    }
+}
+
+class_data_item *get_class_data_by_fieldid(DexFileFormat *dex, const int fieldid) {
+    int iter;
+    field_id_item *field = get_field_item(dex, fieldid);
+
+    for (iter = 0; iter < dex->header.classDefsSize; iter++)
+        if (field->class_idx == dex->class_def_item[iter].class_idx)
+            return &dex->class_data_item[iter];
+    return NULL;
+}
+
+static sdvm_obj DEFAULT_SDVM_OBJ = {1, NULL};
+
+sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
+    int iter;
+    class_data_item *clazz = get_class_data_by_fieldid(dex, fieldid);
+    field_id_item *field = get_field_item(dex, fieldid);
+
+    assert(field);
+
+    if (clazz) {
+        for (iter = 0; iter < clazz->static_fields_size; iter++)
+            if (clazz->static_fields[iter].field_id == fieldid) {
+                if (is_verbose() > 3) {
+                    printf("field_id = %d --> static_id = %d\n", fieldid, iter);
+                }
+                return &clazz->sdata[iter].obj;
+            }
+    } else {
+        /*  the clazz is defined in another dex, e.g. Ljava/lang/System, we
+         *  don't care here, just return a default one */
+        return &DEFAULT_SDVM_OBJ;
     }
 }

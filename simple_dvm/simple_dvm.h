@@ -136,16 +136,36 @@ typedef enum _static_data_value_type {
     VALUE_BOOLEAN = 0x1f
 } static_data_value_type;
 
-typedef struct _static_data {
-    int intValue;
-    long longValue;
-    char *objectValue;
-    /*  e.g. Msg.out = System.err;
-     *  out is a static object, err is an object, out will actually point to err
-     *  (My understanding)
-     */
-    int actual_obj_field_id;
-} static_data;
+/*  sdvm object layout define (merely same as c++, except we don't handle vtbl
+ *  currently) :
+ *
+ *    low address
+ *  +-------------+  <-- this ptr
+ *  | super class |
+ *  | members     |
+ *  +-------------+
+ *  | base class  |
+ *  | members     |
+ *  +-------------+
+ *
+ *  * Assume we at most have 1 super class
+ */
+typedef struct _sdvm_obj {
+    uint ref_count;
+    void *this_ptr;
+} sdvm_obj;
+
+typedef struct _static_field_data {
+    union {
+        int         int_value;
+        long        long_value;
+        /*  e.g. Msg.out = System.err;
+         *  out is a static object, err is an object, out will actually point to err
+         *  (My understanding)
+         */
+        sdvm_obj    obj;
+    };
+} static_field_data;
 
 typedef struct _class_def_item {
     uint class_idx;
@@ -170,7 +190,7 @@ typedef struct _class_data_item {
     encoded_method *direct_methods;
     encoded_method *virtual_methods;
 
-    static_data *sdata;
+    static_field_data *sdata;
 } class_data_item;
 
 typedef struct _DexHeader {
@@ -246,6 +266,7 @@ method_id_item *get_method_item(DexFileFormat *dex, int method_id);
 
 /* class defs parser */
 void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset);
+sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid);
 
 int get_uleb128_len(unsigned char *buf, int offset, int *size);
 

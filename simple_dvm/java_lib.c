@@ -49,6 +49,14 @@ int java_io_print_stream_println(DexFileFormat *dex, simple_dalvik_vm *vm, char 
     return 0;
 }
 
+int java_io_print_stream_flush(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    if (is_verbose())
+        printf("call java.io.PrintStream.flush\n");
+
+    fflush(stdio);
+    return 0;
+}
+
 /* java.lang.StringBuilder.<init> */
 int java_lang_string_builder_init(DexFileFormat *dex, simple_dalvik_vm *vm, char *type)
 {
@@ -107,6 +115,8 @@ int java_lang_system_currenttimemillis(DexFileFormat *dex, simple_dalvik_vm *vm)
 static java_lang_method method_table[] = {
     {"Ljava/lang/Math;",          "random",   java_lang_math_random},
     {"Ljava/io/PrintStream;",     "println",  java_io_print_stream_println},
+    {"Ljava/io/PrintStream;",     "print",    java_io_print_stream_println},
+    {"Ljava/io/PrintStream;",     "flush",    java_io_print_stream_flush},
     {"Ljava/lang/StringBuilder;", "<init>",   java_lang_string_builder_init},
     {"Ljava/lang/StringBuilder;", "append",   java_lang_string_builder_append},
     {"Ljava/lang/StringBuilder;", "toString", java_lang_string_builder_to_string},

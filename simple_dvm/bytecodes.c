@@ -587,16 +587,23 @@ static int op_sget_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
     reg_idx_vx = ptr[*pc + 1];
     field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
 
+    sdvm_obj *obj = get_static_obj_by_fieldid(dex, field_id);
+
+    assert(((u8)obj >> 32) == 0);
+    /*  we store object ptr to dalvik 32-bit register
+     *  Note! In 64-bit linux, this ptr is 64-bit, but if the ptr comes from
+     *  malloc, its high 32 bit = 0x0
+     */
+    store_to_reg(vm, reg_idx_vx, (unsigned char *) &obj);
     if (is_verbose()) {
-        printf("sget-object v%d, field 0x%04x\n", reg_idx_vx, field_id);
+        printf("sget-object v%d, field 0x%04x, obj_ptr %p \n", reg_idx_vx, field_id, obj);
     }
-    store_to_reg(vm, reg_idx_vx, (unsigned char *) &field_id);
     /* TODO */
     *pc = *pc + 4;
     return 0;
 }
 
-/*  0x69 sput-object vx, field_id
+/*  0x69 sput-object vx, dst_field_id
  *  . Puts object reference in vx (reg_idx_vx) into a static field (dst_field_id).
  *  . 6900 0c00 - sput-object v0, Test3.os1:Ljava/lang/Object; // field@000c
  *    Puts the object reference value in v0 into the field@000c static field
@@ -606,17 +613,21 @@ static int op_sput_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
 {
     int reg_idx_vx = ptr[*pc + 1];
     int dst_field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
-    int src_field_id = 0;
-    load_reg_to(vm, reg_idx_vx, (unsigned char *) &src_field_id);
+    sdvm_obj *src_obj = NULL;
+    load_reg_to(vm, reg_idx_vx, (unsigned char *) &src_obj);
 
-    /* get static_data by dst_field_id
-    ushort class_id = dex->field_id_item[dst_field_id].class_idx;
+    sdvm_obj *dst_obj = get_static_obj_by_fieldid(dex, dst_field_id);
+    assert(((u8)dst_obj >> 32) == 0);
+    assert(dst_obj->ref_count > 0);
+    dst_obj->ref_count --;
 
-    dex->class_data_item[index].sdata[j].actual_obj_field_id = src_field_id;
+    *dst_obj = *src_obj;
+    dst_obj->ref_count++;
 
     if (is_verbose()) {
-        printf("sput-object v%d, field 0x%04x\n", reg_idx_vx, field_id);
-    }*/
+        printf("sput-object v%d, dst field 0x%04x, src_ptr %p, dst_ptr %p\n",
+               reg_idx_vx, dst_field_id, src_obj, dst_obj);
+    }
 
     /* TODO */
     *pc = *pc + 4;
