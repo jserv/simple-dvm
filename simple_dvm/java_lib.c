@@ -53,7 +53,7 @@ int java_io_print_stream_flush(DexFileFormat *dex, simple_dalvik_vm *vm, char *t
     if (is_verbose())
         printf("call java.io.PrintStream.flush\n");
 
-    fflush(stdio);
+    fflush(stdout);
     return 0;
 }
 
