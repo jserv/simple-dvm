@@ -492,13 +492,7 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
                                               proto_item->return_type_idx));
 
                 if (clazz) {
-                    int iter;
-                    for (iter = 0; iter < clazz->direct_methods_size; iter++) {
-                        if (p->method_id == clazz->direct_methods[iter].method_id)
-                            break;
-                    }
-                    assert(iter < clazz->direct_methods_size);
-                    runMethod(dex, vm, &clazz->direct_methods[iter]);
+                    invoke_clazz_method(dex, vm, clazz, p);
                 } else {
                     invoke_java_lang_library(dex, vm,
                                              get_string_data(dex, type_class->descriptor_idx),
@@ -513,67 +507,7 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
                            get_type_item_name(dex,
                                               proto_item->return_type_idx));
                 if (clazz) {
-                    int iter;
-                    encoded_method *method = NULL;
-                    for (iter = 0; iter < clazz->direct_methods_size; iter++) {
-                        if (p->method_id == clazz->direct_methods[iter].method_id)
-                            method = &clazz->direct_methods[iter];
-                    }
-                    assert(method);
-                    /*  e.g. Func_1(int x) use 3 registers totally :
-                     *      i.e. v0, v1, v2 in order (registers_size = 3)
-                     *      parameter = v1, v2 (p->reg_count)
-                     *      v1 = this pointer
-                     *      v2 = x
-                     *
-                     *      If I call Func_1
-                     *      v9 = this
-                     *      v5 = int
-                     *      invoke-direct {v9, v5} Func_1
-                     *
-                     *      So I have to :
-                     *      push v1, v2 to stack
-                     *      v1 = v9
-                     *      v2 = v5
-                     *      call Func_1
-                     *      pop v2, v1 back to v5, v9
-                     */
-                    assert(p->reg_count);   /* at least we have this pointer */
-
-                    const u1 reg_start_id = method->code_item.registers_size - p->reg_count;
-                    for (iter = 0; iter < p->reg_count; iter++) {
-                        //u4 *data = (u4 *)&vm->regs[p->reg_idx[iter]].data;
-                        u4 *data_1 = (u4 *)&vm->regs[reg_start_id + iter].data;
-                        u4 *data_2 = (u4 *)&vm->regs[p->reg_idx[iter]].data;
-
-                        if (is_verbose()) {
-                            printf("    push v%d (0x%x) to stack\n", reg_start_id + iter, *data_1);
-                            printf("    mv v%d (0x%x) to v%d\n", p->reg_idx[iter], *data_2, reg_start_id + iter);
-                        }
-                        push(vm, *data_1);
-                        *data_1 = *data_2;
-                    }
-
-                    if (is_verbose()) { printf("    save invoke info & pc (0x%x)\n", vm->pc); }
-                    //push(vm, vm->pc);
-                    uint pc = vm->pc;
-                    invoke_parameters param = *p;
-
-                    runMethod(dex, vm, method);
-                    /* restore pc, invoke parameters */
-                    vm->pc = pc;
-                    vm->p = param;
-                    if (is_verbose()) { printf("    restore invoke info & pc (0x%x)\n", vm->pc); }
-
-                    /* restore registers */
-                    for (iter = p->reg_count - 1; iter >= 0; iter--) {
-                        uint data = pop(vm);
-                        u4 *data_1 = (u4 *)&vm->regs[reg_start_id + iter].data;
-                        *data_1 = data;
-                        if (is_verbose()) {
-                            printf("    pop (0x%x) back to v%d\n", data, reg_start_id + iter);
-                        }
-                    }
+                    invoke_clazz_method(dex, vm, clazz, p);
                 } else {
                     invoke_java_lang_library(dex, vm,
                                              get_string_data(dex, type_class->descriptor_idx),

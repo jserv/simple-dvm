@@ -333,6 +333,9 @@ void runMethod(DexFileFormat *dex, simple_dalvik_vm *vm, encoded_method *m);
 void push(simple_dalvik_vm *vm, const u4 data);
 u4 pop(simple_dalvik_vm *vm);
 
+void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
+                         class_data_item *clazz, invoke_parameters *p);
+
 typedef int (*opCodeFunc)(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc);
 
 typedef struct _byteCode {
