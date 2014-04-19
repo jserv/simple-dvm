@@ -41,12 +41,14 @@ static void parse_encoded_method(unsigned char *buf, encoded_method *method)
     offset += sizeof(ushort) * method->code_item.insns_size;
 }
 
-static encoded_field * load_encoded_field(unsigned char *buf, int offset,
+static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
+                                          unsigned char *buf, int offset,
                                           int count, int *size)
 {
     int j, i = offset;
     int field_id = 0;
     int num_byte = 0;
+    uint offset_from_this = 0;
     encoded_field * sfields = (encoded_field *)
         malloc(sizeof(encoded_field) * count);
 
@@ -60,9 +62,55 @@ static encoded_field * load_encoded_field(unsigned char *buf, int offset,
         sfields[j].access_flags = get_uleb128_len(buf, i, &num_byte);
         i += num_byte;
 
+        if (is_static) {
+            sfields[j].field_size = 0;
+            sfields[j].offset = 0;
+        } else {
+            /* how many bytes I am ? */
+            uint field_size = 0;
+            field_id_item *field = get_field_item(dex, field_id);
+            char *type_name = dex->string_data_item[
+                dex->type_id_item[field->type_idx].descriptor_idx].data;
+            assert(field);
+
+            if (strlen(type_name) == 1) {
+                /* ref : android dex-format, "TypeDescriptor Semantics" */
+                switch (type_name[0]) {
+                    case 'B' :
+                    case 'C' :
+                    case 'Z' :
+                        field_size = 1;
+                        break;
+                    case 'S' :
+                        field_size = 2;
+                        break;
+                    case 'I' :
+                    case 'F' :
+                        field_size = 4;
+                        break;
+                    case 'J' :
+                    case 'D' :
+                        field_size = 8;
+                        break;
+
+                    default :
+                        printf("Error! Un-support field type (%c)\n", type_name[0]);
+                        assert(0);
+                }
+
+            } else {
+                /* treat all other case are objects */
+                field_size = sizeof(sdvm_obj);
+            }
+            sfields[j].field_size = field_size;
+            sfields[j].offset = offset_from_this;
+            offset_from_this += field_size;
+        }
+
         if (is_verbose() > 3)
-            printf("    . field_id = %d (field_idx_diff = %d), access_flags = %04x\n",
-                   sfields[j].field_id, field_idx_diff, sfields[j].access_flags);
+            printf("    . field_id = %d (field_idx_diff = %d), access_flags = %04x, size = %d, offset = %d\n",
+                   sfields[j].field_id, field_idx_diff, sfields[j].access_flags,
+                   sfields[j].field_size, sfields[j].offset);
     }
 
     *size = i - offset;
@@ -246,7 +294,7 @@ static void parse_class_data_item(DexFileFormat *dex,
         }
         dex->class_data_item[index].static_fields_size = static_fields_size;
         dex->class_data_item[index].static_fields =
-            load_encoded_field(buf, i, static_fields_size, &size);
+            load_encoded_field(dex, TRUE, buf, i, static_fields_size, &size);
         i += size;
     }
     if (instance_fields_size > 0) {
@@ -255,7 +303,7 @@ static void parse_class_data_item(DexFileFormat *dex,
         }
         dex->class_data_item[index].instance_fields_size = instance_fields_size;
         dex->class_data_item[index].instance_fields =
-            load_encoded_field(buf, i, instance_fields_size, &size);
+            load_encoded_field(dex, FALSE, buf, i, instance_fields_size, &size);
         i += size;
     }
     if (direct_methods_size > 0) {
@@ -299,6 +347,16 @@ static void parse_class_data_item(DexFileFormat *dex,
         }
         dex->class_data_item[index].sdata = sdata;
     }
+
+    if (instance_fields_size > 0) {
+        int j;
+        for (j = 0; j < instance_fields_size; j++) {
+            dex->class_data_item[index].class_inst_size +=
+                dex->class_data_item[index].instance_fields[j].field_size;
+        }
+    }
+    printf("  - class instance size = %d\n",
+           dex->class_data_item[index].class_inst_size);
 }
 
 void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset)
@@ -335,6 +393,15 @@ class_data_item *get_class_data_by_fieldid(DexFileFormat *dex, const int fieldid
 
     for (iter = 0; iter < dex->header.classDefsSize; iter++)
         if (field->class_idx == dex->class_def_item[iter].class_idx)
+            return &dex->class_data_item[iter];
+    return NULL;
+}
+
+class_data_item *get_class_data_by_typeid(DexFileFormat *dex, const int type_id) {
+    int iter;
+
+    for (iter = 0; iter < dex->header.classDefsSize; iter++)
+        if (type_id == dex->class_def_item[iter].class_idx)
             return &dex->class_data_item[iter];
     return NULL;
 }

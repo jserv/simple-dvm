@@ -140,3 +140,28 @@ void store_long_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr)
     r->data[2] = ptr[0];
     r->data[3] = ptr[1];
 }
+
+void push(simple_dalvik_vm *vm, const u4 data) {
+    if (vm->stack_ptr >= 8192) {
+        printf("* Error! Stack Full !\n");
+        return;
+    }
+    if (is_verbose()) {
+        printf("    (push 0x%x, stack_ptr = %d)\n", data, vm->stack_ptr);
+    }
+    vm->stack[vm->stack_ptr] = data;
+    vm->stack_ptr ++;
+}
+
+uint pop(simple_dalvik_vm *vm) {
+    if (vm->stack_ptr == 0) {
+        printf("* Error! Stack Empty !\n");
+        return 0xffffffff;
+    }
+    vm->stack_ptr --;
+    if (is_verbose()) {
+        printf("    (pop 0x%x, stack_ptr = %d)\n", vm->stack[vm->stack_ptr], vm->stack_ptr);
+    }
+    return vm->stack[vm->stack_ptr];
+}
+

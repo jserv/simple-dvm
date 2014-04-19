@@ -56,7 +56,7 @@ static void parse_type_list(DexFileFormat *dex,
 {
     int i = 0;
     if (is_verbose() > 3)
-        printf("parse type_list offset = %04x\n", offset + sizeof(DexHeader));
+        printf("parse type_list offset = %04x\n", (uint)(offset + sizeof(DexHeader)));
     memcpy(&dex->type_list.size , buf + offset, 4);
     if (is_verbose() > 3)
         printf("type_list size = %d\n", dex->type_list.size);
@@ -81,7 +81,7 @@ static void parse_map_item(DexFileFormat *dex,
     memcpy(&dex->map_list.map_item[index], buf + offset, sizeof(map_item));
     size_in_bytes = 4 + (dex->map_list.map_item[index].size * 2);
     if (is_verbose() > 3) {
-        printf("offset = %04x ", offset + sizeof(DexHeader));
+        printf("offset = %04x ", (uint)(offset + sizeof(DexHeader)));
         printf("map_item[%d] : type = %04x(%s), size = %04x, "
                "offset = 0x%04x, item_size_in_byte = %d\n",
                index,
@@ -101,7 +101,7 @@ void parse_map_list(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i = 0;
     if (is_verbose() > 3)
-        printf("parse map_list offset = %04x\n", offset + sizeof(DexHeader));
+        printf("parse map_list offset = %04x\n", (uint)(offset + sizeof(DexHeader)));
     memcpy(&dex->map_list.size , buf + offset, 4);
     if (is_verbose() > 3)
         printf("map_list size = %d\n", dex->map_list.size);

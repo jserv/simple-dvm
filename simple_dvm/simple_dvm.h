@@ -23,6 +23,9 @@ typedef unsigned short ushort;
 typedef unsigned char byte;
 typedef unsigned long long u8;
 
+#define TRUE 1
+#define FALSE 0
+
 /* map_list */
 typedef struct _map_item {
     ushort  type;
@@ -115,6 +118,10 @@ typedef struct _encoded_field {
      */
     uint field_id;  /* Note! we store id, not index diff! */
     uint access_flags;
+    uint field_size;    /* Note! object size is always sizeof(sdvm_obj) */
+    /*  this_ptr + offset = the field starting address in object instance
+     *  ref : comment in sdvm_obj */
+    uint offset;
 } encoded_field;
 
 typedef enum _static_data_value_type {
@@ -141,6 +148,8 @@ typedef enum _static_data_value_type {
  *
  *    low address
  *  +-------------+  <-- this ptr
+ *  | sdvm obj    |
+ *  +-------------+
  *  | super class |
  *  | members     |
  *  +-------------+
@@ -191,6 +200,13 @@ typedef struct _class_data_item {
     encoded_method *virtual_methods;
 
     static_field_data *sdata;
+
+    /*  how many bytes I need to allocate if I instantiate it
+     *  (include parent class member)
+     *
+     *  instance_fields tell me the object layout
+     */
+    uint class_inst_size;
 } class_data_item;
 
 typedef struct _DexHeader {
@@ -267,6 +283,7 @@ method_id_item *get_method_item(DexFileFormat *dex, int method_id);
 /* class defs parser */
 void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset);
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid);
+class_data_item *get_class_data_by_typeid(DexFileFormat *dex, const int type_id);
 
 int get_uleb128_len(unsigned char *buf, int offset, int *size);
 
@@ -284,6 +301,8 @@ typedef struct _simple_dvm_register {
 
 typedef struct _simple_dalvik_vm {
     u1 heap[8192];
+    u4 stack[8192];
+    u2 stack_ptr;
     u1 object_ref[4];
     simple_dvm_register regs[32];
     invoke_parameters p;
@@ -303,11 +322,16 @@ void store_double_to_result(simple_dalvik_vm *vm, unsigned char *ptr);
 void load_reg_to_long(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 void store_long_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 
+void store_long_to_result(simple_dalvik_vm *vm, unsigned char *ptr);
+
 void move_top_half_result_to_reg(simple_dalvik_vm *vm, int id);
 void move_bottom_half_result_to_reg(simple_dalvik_vm *vm, int id);
 
 void simple_dvm_startup(DexFileFormat *dex, simple_dalvik_vm *vm, char *entry);
 void runMethod(DexFileFormat *dex, simple_dalvik_vm *vm, encoded_method *m);
+
+void push(simple_dalvik_vm *vm, const u4 data);
+u4 pop(simple_dalvik_vm *vm);
 
 typedef int (*opCodeFunc)(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc);
 

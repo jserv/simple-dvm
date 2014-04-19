@@ -10,7 +10,7 @@ void parse_method_ids(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i = 0;
     if (is_verbose() > 3)
-        printf("parse method ids offset = %04x\n", offset + sizeof(DexHeader));
+        printf("parse method ids offset = %04x\n", (uint)(offset + sizeof(DexHeader)));
     dex->method_id_item = malloc(
                               sizeof(method_id_item) * dex->header.methodIdsSize);
 

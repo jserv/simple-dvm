@@ -32,7 +32,7 @@ OBJS = \
 $(EXECUTABLE): $(OBJS)
 	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 
-%.o: %.c
+%.o: %.c simple_dvm.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:

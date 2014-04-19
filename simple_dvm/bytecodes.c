@@ -344,20 +344,38 @@ static int op_new_instance(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
     int reg_idx_vx = 0;
     int type_id = 0;
     type_id_item *type_item = 0;
+    class_data_item *clazz = NULL;
+    uint class_inst_size;
 
     reg_idx_vx = ptr[*pc + 1];
     type_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
 
     type_item = get_type_item(dex, type_id);
+    clazz = get_class_data_by_typeid(dex, type_id);
+    //assert(clazz);
+    sdvm_obj *obj;
+    if (clazz) {
+        class_inst_size = clazz->class_inst_size;
+    } else {
+        /* currently, we don't support java framework class, just allocate an
+           sdvm_obj */
+        class_inst_size = sizeof(sdvm_obj);
+    }
+    obj = (sdvm_obj *)malloc(class_inst_size);
+
+    obj->ref_count = 1;
+    obj->this_ptr = obj;  // todo : do we need this_ptr ?
 
     if (is_verbose()) {
-        printf("new-instance v%d, type_id 0x%04x", reg_idx_vx, type_id);
+        printf("new-instance v%d, type_id 0x%04x, size %d, ptr %p",
+               reg_idx_vx, type_id, class_inst_size, obj);
         if (type_item != 0) {
-            printf(" %s", get_string_data(dex, type_item->descriptor_idx));
+            printf(", %s", get_string_data(dex, type_item->descriptor_idx));
         }
         printf("\n");
     }
-    store_to_reg(vm, reg_idx_vx, (unsigned char*)&type_id);
+    //store_to_reg(vm, reg_idx_vx, (unsigned char*)&type_id);
+    store_to_reg(vm, reg_idx_vx, (unsigned char*)&obj);
     /* TODO */
     *pc = *pc + 4;
     return 0;
@@ -408,6 +426,7 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
     type_id_item *type_class = 0;
     proto_id_item *proto_item = 0;
     type_list *proto_type_list = 0;
+
     if (p != 0) {
         m = get_method_item(dex, p->method_id);
         if (m != 0) {
@@ -459,6 +478,7 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
         }
 
         if (m != 0 && type_class != 0 && p->reg_count <= 5) {
+            class_data_item *clazz = get_class_data_by_typeid(dex, m->class_idx);
             if (proto_item != 0)
                 proto_type_list = get_proto_type_list(dex, m->proto_idx);
             if (proto_type_list != 0 && proto_type_list->size > 0) {
@@ -470,10 +490,21 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
                                               proto_type_list->type_item[0].type_idx),
                            get_type_item_name(dex,
                                               proto_item->return_type_idx));
-                invoke_java_lang_library(dex, vm,
-                                         get_string_data(dex, type_class->descriptor_idx),
-                                         get_string_data(dex, m->name_idx),
-                                         get_type_item_name(dex, proto_type_list->type_item[0].type_idx));
+
+                if (clazz) {
+                    int iter;
+                    for (iter = 0; iter < clazz->direct_methods_size; iter++) {
+                        if (p->method_id == clazz->direct_methods[iter].method_id)
+                            break;
+                    }
+                    assert(iter < clazz->direct_methods_size);
+                    runMethod(dex, vm, &clazz->direct_methods[iter]);
+                } else {
+                    invoke_java_lang_library(dex, vm,
+                                             get_string_data(dex, type_class->descriptor_idx),
+                                             get_string_data(dex, m->name_idx),
+                                             get_type_item_name(dex, proto_type_list->type_item[0].type_idx));
+                }
             } else {
                 if (is_verbose())
                     printf(" %s,%s,()%s \n",
@@ -481,9 +512,73 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
                            get_string_data(dex, m->name_idx),
                            get_type_item_name(dex,
                                               proto_item->return_type_idx));
-                invoke_java_lang_library(dex, vm,
-                                         get_string_data(dex, type_class->descriptor_idx),
-                                         get_string_data(dex, m->name_idx), 0);
+                if (clazz) {
+                    int iter;
+                    encoded_method *method = NULL;
+                    for (iter = 0; iter < clazz->direct_methods_size; iter++) {
+                        if (p->method_id == clazz->direct_methods[iter].method_id)
+                            method = &clazz->direct_methods[iter];
+                    }
+                    assert(method);
+                    /*  e.g. Func_1(int x) use 3 registers totally :
+                     *      i.e. v0, v1, v2 in order (registers_size = 3)
+                     *      parameter = v1, v2 (p->reg_count)
+                     *      v1 = this pointer
+                     *      v2 = x
+                     *
+                     *      If I call Func_1
+                     *      v9 = this
+                     *      v5 = int
+                     *      invoke-direct {v9, v5} Func_1
+                     *
+                     *      So I have to :
+                     *      push v1, v2 to stack
+                     *      v1 = v9
+                     *      v2 = v5
+                     *      call Func_1
+                     *      pop v2, v1 back to v5, v9
+                     */
+                    assert(p->reg_count);   /* at least we have this pointer */
+
+                    const u1 reg_start_id = method->code_item.registers_size - p->reg_count;
+                    for (iter = 0; iter < p->reg_count; iter++) {
+                        //u4 *data = (u4 *)&vm->regs[p->reg_idx[iter]].data;
+                        u4 *data_1 = (u4 *)&vm->regs[reg_start_id + iter].data;
+                        u4 *data_2 = (u4 *)&vm->regs[p->reg_idx[iter]].data;
+
+                        if (is_verbose()) {
+                            printf("    push v%d (0x%x) to stack\n", reg_start_id + iter, *data_1);
+                            printf("    mv v%d (0x%x) to v%d\n", p->reg_idx[iter], *data_2, reg_start_id + iter);
+                        }
+                        push(vm, *data_1);
+                        *data_1 = *data_2;
+                    }
+
+                    if (is_verbose()) { printf("    save invoke info & pc (0x%x)\n", vm->pc); }
+                    //push(vm, vm->pc);
+                    uint pc = vm->pc;
+                    invoke_parameters param = *p;
+
+                    runMethod(dex, vm, method);
+                    /* restore pc, invoke parameters */
+                    vm->pc = pc;
+                    vm->p = param;
+                    if (is_verbose()) { printf("    restore invoke info & pc (0x%x)\n", vm->pc); }
+
+                    /* restore registers */
+                    for (iter = p->reg_count - 1; iter >= 0; iter--) {
+                        uint data = pop(vm);
+                        u4 *data_1 = (u4 *)&vm->regs[reg_start_id + iter].data;
+                        *data_1 = data;
+                        if (is_verbose()) {
+                            printf("    pop (0x%x) back to v%d\n", data, reg_start_id + iter);
+                        }
+                    }
+                } else {
+                    invoke_java_lang_library(dex, vm,
+                                             get_string_data(dex, type_class->descriptor_idx),
+                                             get_string_data(dex, m->name_idx), 0);
+                }
             }
 
         } else {
@@ -545,8 +640,11 @@ static int op_invoke_virtual(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, 
     return 0;
 }
 
-/* invoke-direct
- * 7010 0400 0300  invoke-direct {v3}, Ljava/lang/StringBuilder;.<init>:()V // method@0004
+/*  0x70 invoke-direct { parameters }, methodtocall
+ *  . Invokes a method with parameters without the virtual method resolution
+ *  . 7010 0800 0100 - invoke-direct {v1}, java.lang.Object.<init>:()V // method@0008
+ *    Invokes the 8th method in the method table with just one parameter,
+ *    v1 is the "this" instance
  */
 static int op_invoke_direct(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
 {
