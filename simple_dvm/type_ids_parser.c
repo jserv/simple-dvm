@@ -117,7 +117,9 @@ void parse_field_ids(DexFileFormat *dex, unsigned char *buf, int offset)
 {
     int i;
     if (is_verbose() > 3)
-        printf("parse feild ids offset = %04x\n", (uint)(offset + sizeof(DexHeader)));
+        printf("parse feild ids offset = %04x\n"
+               "    the parsed field include instance & static data\n",
+               (uint)(offset + sizeof(DexHeader)));
     dex->field_id_item = malloc(sizeof(field_id_item) * dex->header.fieldIdsSize);
 
     if (is_verbose() > 3)

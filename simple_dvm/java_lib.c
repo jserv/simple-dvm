@@ -3,6 +3,7 @@
  *
  * Copyright (C) 2013 Chun-Yu Wang <wicanr2@gmail.com>
  */
+#include <stdio.h>
 #include <time.h>
 #include <sys/time.h>
 #include "java_lib.h"
@@ -28,6 +29,85 @@ int java_lang_math_random(DexFileFormat *dex, simple_dalvik_vm *vm, char *type)
 int java_lang_object_init(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
     if (is_verbose())
         printf("    call java.lang.object.<init> (%s)\n", type);
+    return 0;
+}
+
+int java_io_buffered_reader_init(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    if (is_verbose())
+        printf("    call java_io_buffered_reader_init.<init> (%s)\n", type);
+    return 0;
+}
+
+int java_io_input_stream_reader_init(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    if (is_verbose())
+        printf("    call java_io_input_stream_reader_init.<init> (%s)\n", type);
+    return 0;
+}
+
+int java_io_buffered_reader(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    char *str = NULL;
+    /* %m : http://blog.markloiseau.com/2012/02/two-safer-alternatives-to-scanf/
+     *  => str = malloc(..), so we have to free 'str' by our self
+     */
+    int status = scanf("%ms", &str);
+
+    if (status != 1) {
+        printf("Warning! scanf encounter error\n");
+    }
+
+    sdvm_obj *obj = create_sdvm_obj();
+    obj->ref_count = 1;
+    //load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&obj);
+    //*((long *)&obj->other_data) = val;
+    obj->other_data = str;
+
+    assert(sizeof(long) == 8);
+    assert(sizeof(obj->other_data) == 8);
+    assert(((u8)obj >> 32) == 0);
+
+    /* save the object reference to result */
+    store_to_bottom_half_result(vm, (u1 *)&obj);
+
+    if (is_verbose())
+        printf("    call java_io_buffered_reader (%s), read string = %s\n"
+               "    store obj (%p) to result, other_data = %p\n",
+               type, str, obj, obj->other_data);
+
+    return 0;
+}
+
+int java_lang_long_valueof(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    sdvm_obj *obj = NULL;
+    sdvm_obj *newobj = create_sdvm_obj();
+
+    load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&obj);
+
+    char *str = (char *)obj->other_data;
+    long val = strtol(str, NULL, 10);
+    newobj->ref_count = 1;
+    *(long *)&newobj->other_data = val;
+
+    //store_long_to_result(vm, (u1 *)&val);
+    /* save the object reference to result */
+    store_to_bottom_half_result(vm, (u1 *)&newobj);
+
+    if (is_verbose())
+        printf("    call java_lang_long_valueof (%s), val = %p, store obj (%p) to result\n",
+               type, newobj->other_data, newobj);
+    return 0;
+}
+
+int java_lang_long_long_value(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    sdvm_obj *obj = NULL;
+
+    load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&obj);
+
+    u1 *val = (u1 *)&obj->other_data;
+    store_long_to_result(vm, val);
+
+    if (is_verbose())
+        printf("    call java_lang_long_long_value (%s), store val (%p) to result\n",
+               type, obj->other_data);
     return 0;
 }
 
@@ -121,9 +201,14 @@ int java_lang_system_currenttimemillis(DexFileFormat *dex, simple_dalvik_vm *vm,
 static java_lang_method method_table[] = {
     {"Ljava/lang/Math;",          "random",   java_lang_math_random},
     {"Ljava/lang/Object;",        "<init>",   java_lang_object_init},
+    {"Ljava/io/BufferedReader;",  "<init>",   java_io_buffered_reader_init},
+    {"Ljava/io/BufferedReader;",  "readLine", java_io_buffered_reader},
+    {"Ljava/io/InputStreamReader;","<init>",  java_io_input_stream_reader_init},
     {"Ljava/io/PrintStream;",     "println",  java_io_print_stream_println},
     {"Ljava/io/PrintStream;",     "print",    java_io_print_stream_println},
     {"Ljava/io/PrintStream;",     "flush",    java_io_print_stream_flush},
+    {"Ljava/lang/Long;",          "valueOf",  java_lang_long_valueof},
+    {"Ljava/lang/Long;",          "longValue",java_lang_long_long_value},
     {"Ljava/lang/StringBuilder;", "<init>",   java_lang_string_builder_init},
     {"Ljava/lang/StringBuilder;", "append",   java_lang_string_builder_append},
     {"Ljava/lang/StringBuilder;", "toString", java_lang_string_builder_to_string},

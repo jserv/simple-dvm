@@ -140,7 +140,8 @@ typedef enum _static_data_value_type {
     VALUE_ARRAY = 0x1c,
     VALUE_ANNOTATION = 0x1d,
     VALUE_NULL = 0x1e,
-    VALUE_BOOLEAN = 0x1f
+    VALUE_BOOLEAN = 0x1f,
+    VALUE_SDVM_OBJ = 0x20   /* sdvm defined, means this is a sdvm object */
 } static_data_value_type;
 
 /*  sdvm object layout define (merely same as c++, except we don't handle vtbl
@@ -161,7 +162,8 @@ typedef enum _static_data_value_type {
  */
 typedef struct _sdvm_obj {
     uint ref_count;
-    void *this_ptr;
+    struct _class_data_item *clazz;
+    void *other_data;
 } sdvm_obj;
 
 typedef struct _static_field_data {
@@ -172,8 +174,9 @@ typedef struct _static_field_data {
          *  out is a static object, err is an object, out will actually point to err
          *  (My understanding)
          */
-        sdvm_obj    obj;
+        sdvm_obj    *obj;
     };
+    static_data_value_type type;
 } static_field_data;
 
 typedef struct _class_def_item {
@@ -283,6 +286,7 @@ method_id_item *get_method_item(DexFileFormat *dex, int method_id);
 /* class defs parser */
 void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset);
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid);
+static_field_data * get_static_field_data_by_fieldid(DexFileFormat *dex, const int fieldid);
 class_data_item *get_class_data_by_typeid(DexFileFormat *dex, const int type_id);
 
 int get_uleb128_len(unsigned char *buf, int offset, int *size);
@@ -304,6 +308,7 @@ typedef struct _simple_dalvik_vm {
     u4 stack[8192];
     u2 stack_ptr;
     u1 object_ref[4];
+    //sdvm_obj *object_ref;
     simple_dvm_register regs[32];
     invoke_parameters p;
     u1 result[8];
@@ -323,6 +328,7 @@ void load_reg_to_long(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 void store_long_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr);
 
 void store_long_to_result(simple_dalvik_vm *vm, unsigned char *ptr);
+void store_to_bottom_half_result(simple_dalvik_vm *vm, unsigned char *ptr);
 
 void move_top_half_result_to_reg(simple_dalvik_vm *vm, int id);
 void move_bottom_half_result_to_reg(simple_dalvik_vm *vm, int id);
@@ -335,6 +341,9 @@ u4 pop(simple_dalvik_vm *vm);
 
 void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
                          class_data_item *clazz, invoke_parameters *p);
+
+sdvm_obj *create_sdvm_obj(void);
+void printRegs(simple_dalvik_vm *vm);
 
 typedef int (*opCodeFunc)(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc);
 

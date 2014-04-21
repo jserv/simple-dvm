@@ -7,6 +7,8 @@
 #include "simple_dvm.h"
 #include <assert.h>
 
+static sdvm_obj DEFAULT_SDVM_OBJ = {1, NULL};
+
 static void parse_encoded_method(unsigned char *buf, encoded_method *method)
 {
     int i = 0;
@@ -41,6 +43,8 @@ static void parse_encoded_method(unsigned char *buf, encoded_method *method)
     offset += sizeof(ushort) * method->code_item.insns_size;
 }
 
+const uint OBJ_BASE_SIZE = sizeof(sdvm_obj);
+
 static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
                                           unsigned char *buf, int offset,
                                           int count, int *size)
@@ -48,7 +52,7 @@ static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
     int j, i = offset;
     int field_id = 0;
     int num_byte = 0;
-    uint offset_from_this = 0;
+    uint offset_from_this = OBJ_BASE_SIZE;
     encoded_field * sfields = (encoded_field *)
         malloc(sizeof(encoded_field) * count);
 
@@ -202,22 +206,27 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
         switch(valueType){
             case VALUE_BYTE : {
                 sdata[j].int_value = (byte)read_encoded_value(buf, &offset, 1);
+                sdata[j].type = VALUE_BYTE;
                 break;
             }
             case VALUE_CHAR : {
                 sdata[j].int_value = (char)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].type = VALUE_CHAR;
                 break;
             }
             case VALUE_SHORT : {
                 sdata[j].int_value = (short)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].type = VALUE_SHORT;
                 break;
             }
             case VALUE_INT : {
                 sdata[j].int_value = (int)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].type = VALUE_INT;
                 break;
             }
             case VALUE_LONG : {
                 sdata[j].long_value = (long)read_encoded_value(buf, &offset, valueArgument + 1);
+                sdata[j].type = VALUE_LONG;
                 break;
             }
             /*
@@ -231,6 +240,7 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
             }*/
             case VALUE_BOOLEAN : {
                 sdata[j].int_value = valueArgument;
+                sdata[j].type = VALUE_BOOLEAN;
                 break;
             }
             default : {
@@ -298,6 +308,7 @@ static void parse_class_data_item(DexFileFormat *dex,
         i += size;
     }
     if (instance_fields_size > 0) {
+        int j;
         if (is_verbose() > 3) {
             printf("  - instance_fields =\n");
         }
@@ -305,6 +316,15 @@ static void parse_class_data_item(DexFileFormat *dex,
         dex->class_data_item[index].instance_fields =
             load_encoded_field(dex, FALSE, buf, i, instance_fields_size, &size);
         i += size;
+
+        for (j = 0; j < instance_fields_size; j++) {
+            dex->class_data_item[index].class_inst_size +=
+                dex->class_data_item[index].instance_fields[j].field_size;
+        }
+        dex->class_data_item[index].class_inst_size += OBJ_BASE_SIZE;
+
+        printf("  - class instance size = %d\n",
+               dex->class_data_item[index].class_inst_size);
     }
     if (direct_methods_size > 0) {
         if (is_verbose() > 3) {
@@ -337,7 +357,10 @@ static void parse_class_data_item(DexFileFormat *dex,
         memset(sdata, 0, sizeof(static_field_data) * static_fields_size);
 
         for (j = 0; j < static_fields_size; j++) {
-            sdata[j].obj.ref_count = 1;
+            //sdata[j].obj.ref_count = 1;
+            //sdata[j].obj.clazz = &dex->class_def_item[index];
+            sdata[j].obj = &DEFAULT_SDVM_OBJ;
+            sdata[j].type = VALUE_SDVM_OBJ;
         }
 
         if (static_values_off > 0) {
@@ -347,16 +370,6 @@ static void parse_class_data_item(DexFileFormat *dex,
         }
         dex->class_data_item[index].sdata = sdata;
     }
-
-    if (instance_fields_size > 0) {
-        int j;
-        for (j = 0; j < instance_fields_size; j++) {
-            dex->class_data_item[index].class_inst_size +=
-                dex->class_data_item[index].instance_fields[j].field_size;
-        }
-    }
-    printf("  - class instance size = %d\n",
-           dex->class_data_item[index].class_inst_size);
 }
 
 void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset)
@@ -406,8 +419,6 @@ class_data_item *get_class_data_by_typeid(DexFileFormat *dex, const int type_id)
     return NULL;
 }
 
-static sdvm_obj DEFAULT_SDVM_OBJ = {1, NULL};
-
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
     int iter;
     class_data_item *clazz = get_class_data_by_fieldid(dex, fieldid);
@@ -418,14 +429,36 @@ sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
     if (clazz) {
         for (iter = 0; iter < clazz->static_fields_size; iter++)
             if (clazz->static_fields[iter].field_id == fieldid) {
+                assert(clazz->sdata[iter].type == VALUE_SDVM_OBJ);
                 if (is_verbose() > 3) {
-                    printf("field_id = %d --> static_id = %d\n", fieldid, iter);
+                    printf("    field_id = %d --> static_id = %d\n", fieldid, iter);
                 }
-                return &clazz->sdata[iter].obj;
+                return clazz->sdata[iter].obj;
             }
+        assert(FALSE);
     } else {
         /*  the clazz is defined in another dex, e.g. Ljava/lang/System, we
          *  don't care here, just return a default one */
         return &DEFAULT_SDVM_OBJ;
     }
 }
+
+static_field_data * get_static_field_data_by_fieldid(DexFileFormat *dex, const int fieldid) {
+    int iter;
+    class_data_item *clazz = get_class_data_by_fieldid(dex, fieldid);
+
+    if (clazz) {
+        for (iter = 0; iter < clazz->static_fields_size; iter++)
+            if (clazz->static_fields[iter].field_id == fieldid) {
+                if (is_verbose() > 3) {
+                    printf("    field_id = %d --> static_id = %d\n", fieldid, iter);
+                }
+                return &clazz->sdata[iter];
+            }
+    }
+    return NULL;
+}
+
+void put_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
+}
+

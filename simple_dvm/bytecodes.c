@@ -21,13 +21,13 @@ static int find_const_string(DexFileFormat *dex, char *entry)
     return -1;
 }
 
-static void printRegs(simple_dalvik_vm *vm)
+void printRegs(simple_dalvik_vm *vm)
 {
     int i = 0;
     if (is_verbose()) {
         printf("pc = %08x\n", vm->pc);
         for (i = 0; i < 16 ; i++) {
-            printf("Reg[%2d] = %4d (%04x) ",
+            printf("Reg[%2d] = %4d (0x%04x) ",
                    i, *((int *)&vm->regs[i]), *((unsigned int *)&vm->regs[i]));
             if ((i + 1) % 4 == 0) printf("\n");
         }
@@ -204,14 +204,19 @@ static int op_add_int_lit8(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
  */
 static int op_move_result_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
 {
-    int reg_idx_vx = 0;
-    int reg_idx_vy = 0;
-    reg_idx_vx = ptr[*pc + 1];
-    reg_idx_vy = reg_idx_vx + 1;
+    int vx_0 = ptr[*pc + 1];
+    int vx_1 = vx_0 + 1;
+    u4 val[2] = {0, 0};
+
+    load_result_to_double(vm, (u1 *)&val);
+    store_double_to_reg(vm, vx_0, (u1 *)&val[0]);
+    store_double_to_reg(vm, vx_1, (u1 *)&val[1]);
+
     if (is_verbose())
-        printf("move-result-wide v%d,v%d\n", reg_idx_vx, reg_idx_vy);
-    move_bottom_half_result_to_reg(vm, reg_idx_vx);
-    move_top_half_result_to_reg(vm, reg_idx_vy);
+        printf("move-result-wide v%d,v%d\n"
+               "    val (%lx)\n",
+               vx_0, vx_1, *(long unsigned int *)val);
+
     *pc = *pc + 2;
     return 0;
 }
@@ -227,9 +232,12 @@ static int op_move_result_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *p
 {
     int reg_idx_vx = 0;
     reg_idx_vx = ptr[*pc + 1];
-    if (is_verbose())
-        printf("move-result-object v%d\n", reg_idx_vx);
     move_bottom_half_result_to_reg(vm, reg_idx_vx);
+
+    if (is_verbose())
+        printf("move-result-object v%d (val = 0x%x)\n",
+               reg_idx_vx, *(uint *)&vm->regs[reg_idx_vx]);
+
     *pc = *pc + 2;
     return 0;
 }
@@ -389,7 +397,8 @@ static int op_new_instance(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
     obj = (sdvm_obj *)malloc(class_inst_size);
 
     obj->ref_count = 1;
-    obj->this_ptr = obj;  // todo : do we need this_ptr ?
+    obj->other_data = NULL;
+    obj->clazz = clazz;
 
     if (is_verbose()) {
         printf("new-instance v%d, type_id 0x%04x, size %d, ptr %p",
@@ -402,6 +411,60 @@ static int op_new_instance(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
     //store_to_reg(vm, reg_idx_vx, (unsigned char*)&type_id);
     store_to_reg(vm, reg_idx_vx, (unsigned char*)&obj);
     /* TODO */
+    *pc = *pc + 4;
+    return 0;
+}
+
+/*  0x23 new-array vx,vy,type_id
+ *  . Generates a new array of type_id type and vy element size and puts the
+ *    reference to the array into vx
+ *
+ *  . 2312 2500 - new-array v2, v1, char[] // type@0025
+ *    Generates a new array of type@0025 type and v1 size and puts the
+ *    reference to the new array into v2
+ */
+static int op_new_array(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx = ptr[*pc + 1] & 0x0F;
+    int vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    ushort type_id = *(ushort *)&ptr[*pc + 2];
+    uint num_elem = 0, iter;
+    u1 *objs = NULL;
+
+    /* similar code in op_new_instance */
+    type_id_item *type_item = get_type_item(dex, type_id);
+    class_data_item *clazz = get_class_data_by_typeid(dex, type_id);
+    uint class_inst_size;
+    if (clazz) {
+        class_inst_size = clazz->class_inst_size;
+    } else {
+        /* currently, we don't support java framework class, just allocate an
+           sdvm_obj */
+        class_inst_size = sizeof(sdvm_obj);
+    }
+
+    load_reg_to(vm, vy, (u1 *)&num_elem);
+
+    objs = (u1 *)malloc(class_inst_size * num_elem);
+    memset(objs, 0, class_inst_size * num_elem);
+
+    for (iter = 0; iter < num_elem; iter++) {
+        sdvm_obj *obj = (sdvm_obj *)(objs + iter * class_inst_size);
+        obj->ref_count = 1;
+        obj->clazz = clazz;
+    }
+
+    store_to_reg(vm, vx, objs);
+
+    if (is_verbose()) {
+        printf("new-array v%d, v%d, type_id 0x%04x, num-elem %d, each elem size %d, ptr %p",
+               vx, vy, type_id, num_elem, class_inst_size, objs);
+        if (type_item != 0) {
+            printf(", %s", get_string_data(dex, type_item->descriptor_idx));
+        }
+        printf("\n");
+    }
+
     *pc = *pc + 4;
     return 0;
 }
@@ -559,27 +622,39 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
  * (dhry) dh.Number_Of_Runs = Long.valueOf(rdr.readLine()).longValue();
  */
 static int op_iput_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
-    int reg_idx_vx = ptr[*pc + 1] & 0x0F;
-    int reg_idx_vy = (ptr[*pc + 1] >> 4) & 0x0F;
-    u4 field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
+    int vx_0 = ptr[*pc + 1] & 0x0F;
+    int vx_1 = vx_0 + 1;
+    int vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    const u4 field_id = ((ptr[*pc + 3] << 8) | ptr[*pc + 2]);
 
-    u8 val = 0;
-    u4 *_pval = (u4 *)&val;
-    u4 instance = 0;
+    int iter;
+    u4 val[2] = {0, 0};
+    sdvm_obj *obj = NULL;
+    u1 *field_ptr = NULL;
 
-    load_reg_to_long(vm, reg_idx_vx, (u1 *)&_pval[0]);
-    load_reg_to_long(vm, reg_idx_vx+1, (u1 *)&_pval[1]);
-    load_reg_to(vm, reg_idx_vy, (u1 *)&instance);
+    load_reg_to_long(vm, vx_0, (u1 *)&val[0]);
+    load_reg_to_long(vm, vx_1, (u1 *)&val[1]);
+    load_reg_to(vm, vy, (u1 *)&obj);
 
-    //load_reg_to(vm, reg_idx_vx, (unsigned char *) &);
-    *pc = *pc + 4;
+    for (iter = 0; iter < obj->clazz->instance_fields_size; iter++)
+        if (field_id == obj->clazz->instance_fields[iter].field_id)
+            break;
+
+    assert(iter < obj->clazz->instance_fields_size);
+
+    const uint field_offset = obj->clazz->instance_fields[iter].offset;
+    field_ptr = (u1 *)obj + field_offset;
 
     if (is_verbose()) {
-        //printf("iput-wide v%d, v%d, field %x (val=lld%, instance=%x)\n", reg_idx_vx, reg_idx_vy, field_id, val, instance);
-        printf("iput-wide v%d, v%d, field 0x%04x (val=%lld L, instance=%x)\n",
-               reg_idx_vx, reg_idx_vy, field_id, val, instance);
+        printf("iput-wide v%d, v%d, field 0x%04x (%p)\n"
+               "    (val=%lld L, obj=%p, field_offset=%d)\n",
+               vx_0, vy, field_id, field_ptr, *(u8 *)&val, obj, field_offset);
     }
 
+    load_reg_to(vm, vx_0, field_ptr);
+    load_reg_to(vm, vx_1, field_ptr + 4);
+
+    *pc = *pc + 4;
     return 0;
 }
 
@@ -653,7 +728,7 @@ static int op_sget_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
      */
     store_to_reg(vm, reg_idx_vx, (unsigned char *) &obj);
     if (is_verbose()) {
-        printf("sget-object v%d, field 0x%04x, obj_ptr %p \n", reg_idx_vx, field_id, obj);
+        printf("sget-object v%d, field 0x%04x, obj_ptr %p\n", reg_idx_vx, field_id, obj);
     }
     /* TODO */
     *pc = *pc + 4;
@@ -673,13 +748,16 @@ static int op_sput_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
     sdvm_obj *src_obj = NULL;
     load_reg_to(vm, reg_idx_vx, (unsigned char *) &src_obj);
 
-    sdvm_obj *dst_obj = get_static_obj_by_fieldid(dex, dst_field_id);
+    static_field_data * dst_field_data = get_static_field_data_by_fieldid(dex, dst_field_id);
+    sdvm_obj *dst_obj = dst_field_data->obj;
+
+    assert(dst_field_data && dst_field_data->type == VALUE_SDVM_OBJ);
     assert(((u8)dst_obj >> 32) == 0);
     assert(dst_obj->ref_count > 0);
-    dst_obj->ref_count --;
 
-    *dst_obj = *src_obj;
-    dst_obj->ref_count++;
+    dst_obj->ref_count --;
+    dst_field_data->obj = src_obj;
+    src_obj->ref_count++;
 
     if (is_verbose()) {
         printf("sput-object v%d, dst field 0x%04x, src_ptr %p, dst_ptr %p\n",
@@ -976,6 +1054,7 @@ static byteCode byteCodes[] = {
     { "const-wide/high16" , 0x19, 4,  op_const_wide_high16 },
     { "const-string"      , 0x1a, 4,  op_const_string },
     { "new-instance"      , 0x22, 4,  op_new_instance },
+    { "new-array"         , 0x23, 4,  op_new_array },
 
     { "iput-wide"         , 0x5a, 4,  op_iput_wide },
 
