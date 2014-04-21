@@ -7,6 +7,7 @@
 #include "simple_dvm.h"
 #include <assert.h>
 
+const uint NO_INDEX = 0xffffffff;
 static sdvm_obj DEFAULT_SDVM_OBJ = {1, NULL};
 
 static void parse_encoded_method(unsigned char *buf, encoded_method *method)
@@ -47,12 +48,13 @@ const uint OBJ_BASE_SIZE = sizeof(sdvm_obj);
 
 static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
                                           unsigned char *buf, int offset,
-                                          int count, int *size)
+                                          int count, int *size,
+                                          uint offset_from_this)
 {
     int j, i = offset;
     int field_id = 0;
     int num_byte = 0;
-    uint offset_from_this = OBJ_BASE_SIZE;
+    //uint offset_from_this = 0; //OBJ_BASE_SIZE;
     encoded_field * sfields = (encoded_field *)
         malloc(sizeof(encoded_field) * count);
 
@@ -264,6 +266,7 @@ static void parse_class_data_item(DexFileFormat *dex,
     int instance_fields_size = 0;
     int direct_methods_size = 0;
     int virtual_methods_size = 0;
+    const uint super_clsid = dex->class_def_item[index].superclass_idx;
     i = offset;
 
     static_fields_size = get_uleb128_len(buf, i, &size);
@@ -284,7 +287,7 @@ static void parse_class_data_item(DexFileFormat *dex,
         printf("    . instance_fields_size = %d\n", instance_fields_size);
         printf("    . direct_method_size = %d\n", direct_methods_size);
         printf("    . virtual_method_size = %d\n", virtual_methods_size);
-        printf("i = %d\n", i);
+        //printf("i = %d\n", i);
     }
 
     /** ref : http://source.android.com/devices/tech/dalvik/dex-format.html
@@ -304,28 +307,52 @@ static void parse_class_data_item(DexFileFormat *dex,
         }
         dex->class_data_item[index].static_fields_size = static_fields_size;
         dex->class_data_item[index].static_fields =
-            load_encoded_field(dex, TRUE, buf, i, static_fields_size, &size);
+            load_encoded_field(dex, TRUE, buf, i, static_fields_size, &size, 0);
         i += size;
     }
+
+    if (is_verbose() > 3) {
+        printf("  - instance_fields = ");
+        if (! instance_fields_size)
+            printf("{Empty}");
+        printf("\n");
+    }
+    /*  we don't support java framework class, so if they are my super
+        class, just use 'OBJ_BASE_SIZE' as the super class size */
+    uint super_clazz_inst_size = OBJ_BASE_SIZE;
     if (instance_fields_size > 0) {
         int j;
-        if (is_verbose() > 3) {
-            printf("  - instance_fields =\n");
+        if (NO_INDEX != super_clsid) {
+            class_data_item *super_clazz = get_class_data_by_typeid_in_range(dex, super_clsid, index);
+            if (super_clazz)
+                super_clazz_inst_size = super_clazz->class_inst_size;
+
+            if (is_verbose() > 3) {
+                printf("    (super_class (%s) size (%d))\n",
+                       dex->string_data_item[dex->type_id_item[super_clsid].descriptor_idx].data,
+                       super_clazz_inst_size);
+            }
         }
         dex->class_data_item[index].instance_fields_size = instance_fields_size;
         dex->class_data_item[index].instance_fields =
-            load_encoded_field(dex, FALSE, buf, i, instance_fields_size, &size);
+            load_encoded_field(dex, FALSE, buf, i, instance_fields_size, &size, super_clazz_inst_size);
         i += size;
+    }
 
-        for (j = 0; j < instance_fields_size; j++) {
+    {
+        /* calculate final class size */
+        int j = 0;
+        for (; j < instance_fields_size; j++) {
             dex->class_data_item[index].class_inst_size +=
                 dex->class_data_item[index].instance_fields[j].field_size;
         }
-        dex->class_data_item[index].class_inst_size += OBJ_BASE_SIZE;
-
-        printf("  - class instance size = %d\n",
-               dex->class_data_item[index].class_inst_size);
+        dex->class_data_item[index].class_inst_size += super_clazz_inst_size;
+        if (is_verbose() > 3)
+            printf("    class (%s) instance size = %d\n",
+                   dex->string_data_item[dex->type_id_item[dex->class_def_item[index].class_idx].descriptor_idx].data,
+                   dex->class_data_item[index].class_inst_size);
     }
+
     if (direct_methods_size > 0) {
         if (is_verbose() > 3) {
             printf("  - direct_methods =\n");
@@ -389,9 +416,10 @@ void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset)
                buf + i * sizeof(class_def_item) + offset,
                sizeof(class_def_item));
         if (is_verbose() > 3) {
-            printf(" class_defs[%d], cls_id = %d, data_off = 0x%04x, source_file_idx = %d\n",
+            printf("  - class_defs[%d], cls_id = %d, super_cls_id = %d, data_off = 0x%04x, source_file_idx = %d\n",
                    i,
                    dex->class_def_item[i].class_idx,
+                   dex->class_def_item[i].superclass_idx,
                    dex->class_def_item[i].class_data_off,
                    dex->class_def_item[i].source_file_idx);
         }
@@ -418,6 +446,18 @@ class_data_item *get_class_data_by_typeid(DexFileFormat *dex, const int type_id)
             return &dex->class_data_item[iter];
     return NULL;
 }
+
+class_data_item *get_class_data_by_typeid_in_range(DexFileFormat *dex, const int type_id,
+                                                   const uint max_count)
+{
+    int iter;
+    assert(dex->header.classDefsSize > max_count);
+    for (iter = 0; iter < max_count; iter++)
+        if (type_id == dex->class_def_item[iter].class_idx)
+            return &dex->class_data_item[iter];
+    return NULL;
+}
+
 
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
     int iter;

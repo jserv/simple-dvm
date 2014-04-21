@@ -26,6 +26,8 @@ typedef unsigned long long u8;
 #define TRUE 1
 #define FALSE 0
 
+extern const uint NO_INDEX;
+
 /* map_list */
 typedef struct _map_item {
     ushort  type;
@@ -288,7 +290,8 @@ void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset);
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid);
 static_field_data * get_static_field_data_by_fieldid(DexFileFormat *dex, const int fieldid);
 class_data_item *get_class_data_by_typeid(DexFileFormat *dex, const int type_id);
-
+class_data_item *get_class_data_by_typeid_in_range(DexFileFormat *dex, const int type_id,
+                                                   const uint max_count);
 int get_uleb128_len(unsigned char *buf, int offset, int *size);
 
 /* generic parameter parser for 35c */
