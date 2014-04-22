@@ -205,29 +205,37 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
         ++offset;
         int valueType = data & 0x1F;
         int valueArgument = data >> 5;
+        sdata[j].obj = create_sdvm_obj();
+        sdata[j].obj->ref_count = 1;
+        long *val = (long *)(&sdata[j].obj->other_data);
         switch(valueType){
             case VALUE_BYTE : {
-                sdata[j].int_value = (byte)read_encoded_value(buf, &offset, 1);
+                //sdata[j].int_value = (byte)read_encoded_value(buf, &offset, 1);
+                *val = read_encoded_value(buf, &offset, 1);
                 sdata[j].type = VALUE_BYTE;
                 break;
             }
             case VALUE_CHAR : {
-                sdata[j].int_value = (char)read_encoded_value(buf, &offset, valueArgument + 1);
+                //sdata[j].int_value = (char)read_encoded_value(buf, &offset, valueArgument + 1);
+                *val = read_encoded_value(buf, &offset, 1);
                 sdata[j].type = VALUE_CHAR;
                 break;
             }
             case VALUE_SHORT : {
-                sdata[j].int_value = (short)read_encoded_value(buf, &offset, valueArgument + 1);
+                //sdata[j].int_value = (short)read_encoded_value(buf, &offset, valueArgument + 1);
+                *val = read_encoded_value(buf, &offset, 1);
                 sdata[j].type = VALUE_SHORT;
                 break;
             }
             case VALUE_INT : {
-                sdata[j].int_value = (int)read_encoded_value(buf, &offset, valueArgument + 1);
+                //sdata[j].int_value = (int)read_encoded_value(buf, &offset, valueArgument + 1);
+                *val = read_encoded_value(buf, &offset, 1);
                 sdata[j].type = VALUE_INT;
                 break;
             }
             case VALUE_LONG : {
-                sdata[j].long_value = (long)read_encoded_value(buf, &offset, valueArgument + 1);
+                //sdata[j].long_value = (long)read_encoded_value(buf, &offset, valueArgument + 1);
+                *val = read_encoded_value(buf, &offset, 1);
                 sdata[j].type = VALUE_LONG;
                 break;
             }
@@ -241,7 +249,8 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
                 break;
             }*/
             case VALUE_BOOLEAN : {
-                sdata[j].int_value = valueArgument;
+                //sdata[j].int_value = valueArgument;
+                *val = valueArgument;
                 sdata[j].type = VALUE_BOOLEAN;
                 break;
             }
@@ -250,8 +259,8 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
             }
         }
         if (is_verbose() > 3) {
-            printf("    . type 0x%x, arg %d, value = (int, long) = 0x%x, 0x%lx\n",
-                   valueType, valueArgument, sdata[j].int_value, sdata[j].long_value);
+            printf("    . type 0x%x, arg %d, value = 0x%lx\n",
+                   valueType, valueArgument, *val);
         }
     }
 }
@@ -267,6 +276,16 @@ static void parse_class_data_item(DexFileFormat *dex,
     int direct_methods_size = 0;
     int virtual_methods_size = 0;
     const uint super_clsid = dex->class_def_item[index].superclass_idx;
+    const uint my_clsid = dex->class_def_item[index].class_idx;
+    const char *super_name = dex->string_data_item[dex->type_id_item[super_clsid].descriptor_idx].data;
+    const char *my_name = dex->string_data_item[dex->type_id_item[my_clsid].descriptor_idx].data;
+    class_data_item *super_clazz = NULL;
+
+    if (NO_INDEX != super_clsid)
+        super_clazz = get_class_data_by_typeid_in_range(dex, super_clsid, index);
+
+    dex->class_data_item[index].clazz_def = &dex->class_def_item[index];
+    dex->class_data_item[index].super_class = super_clazz;
     i = offset;
 
     static_fields_size = get_uleb128_len(buf, i, &size);
@@ -301,10 +320,36 @@ static void parse_class_data_item(DexFileFormat *dex,
             direct_methods          encoded_method[direct_methods_size]
             virtual_methods         encoded_method[virtual_methods_size]
      */
-    if (static_fields_size > 0) {
-        if (is_verbose() > 3) {
-            printf("  - static_fields =\n");
+
+#if 0
+    /* in dex->field_id_item table, find which fields belongs to me */
+    {
+        int j = *field_id_start;
+        uint count;
+        for (; j < dex->header.fieldIdsSize; j++) {
+            if (my_clsid == dex->field_id_item[j].class_idx) {
+                dex->class_data_item[index].field_id_start = j;
+                count = 1;
+                break;
+            }
         }
+
+        for (; j < dex->header.fieldIdsSize; j++) {
+            if (my_clsid == dex->field_id_item[j].class_idx)
+                count++;
+        }
+        dex->class_data_item[index].field_id_count = count;
+    }
+#endif // 0
+
+    if (is_verbose() > 3) {
+        printf("  - static_fields = ");
+        if (! static_fields_size)
+            printf("{Empty}");
+        printf("\n");
+    }
+
+    if (static_fields_size > 0) {
         dex->class_data_item[index].static_fields_size = static_fields_size;
         dex->class_data_item[index].static_fields =
             load_encoded_field(dex, TRUE, buf, i, static_fields_size, &size, 0);
@@ -321,15 +366,13 @@ static void parse_class_data_item(DexFileFormat *dex,
         class, just use 'OBJ_BASE_SIZE' as the super class size */
     uint super_clazz_inst_size = OBJ_BASE_SIZE;
     if (instance_fields_size > 0) {
-        int j;
-        if (NO_INDEX != super_clsid) {
-            class_data_item *super_clazz = get_class_data_by_typeid_in_range(dex, super_clsid, index);
-            if (super_clazz)
-                super_clazz_inst_size = super_clazz->class_inst_size;
+        if (super_clazz)
+            super_clazz_inst_size = super_clazz->class_inst_size;
 
+        if (NO_INDEX != super_clsid) {
             if (is_verbose() > 3) {
                 printf("    (super_class (%s) size (%d))\n",
-                       dex->string_data_item[dex->type_id_item[super_clsid].descriptor_idx].data,
+                       super_name,
                        super_clazz_inst_size);
             }
         }
@@ -349,7 +392,7 @@ static void parse_class_data_item(DexFileFormat *dex,
         dex->class_data_item[index].class_inst_size += super_clazz_inst_size;
         if (is_verbose() > 3)
             printf("    class (%s) instance size = %d\n",
-                   dex->string_data_item[dex->type_id_item[dex->class_def_item[index].class_idx].descriptor_idx].data,
+                   my_name,
                    dex->class_data_item[index].class_inst_size);
     }
 
@@ -373,6 +416,32 @@ static void parse_class_data_item(DexFileFormat *dex,
     }
 
     // load static data :
+#if 0
+    const uint static_fields_size_in_table =
+        dex->class_data_item[index].field_id_count - instance_fields_size;
+    int sfield_size_adjust = FALSE;
+
+    if (static_fields_size != static_fields_size_in_table)
+    {
+        if (is_verbose()) {
+            printf("    (Adjust static_fields_size %d -> %d)\n",
+                   static_fields_size, static_fields_size_in_table);
+        }
+        assert(static_fields_size_in_table > static_fields_size);
+        /*  if this assertion is FALSE, then our implementation have to deal with
+         *  more than 1 level class inheritance (currently, we only process
+         *  1 level (parent, child))
+         *  => have to modify "Found children .." related code
+         */
+        assert(super_clazz->static_fields_size ==
+               (static_fields_size_in_table - static_fields_size));
+
+        static_fields_size = static_fields_size_in_table;
+        dex->class_data_item[index].static_fields_size = static_fields_size;
+        sfield_size_adjust = TRUE;
+    }
+#endif
+    dex->class_data_item[index].sdata = NULL;
     if (static_fields_size > 0) {
         int j;
         const uint static_values_off = dex->class_def_item[index].static_values_off;
@@ -386,7 +455,8 @@ static void parse_class_data_item(DexFileFormat *dex,
         for (j = 0; j < static_fields_size; j++) {
             //sdata[j].obj.ref_count = 1;
             //sdata[j].obj.clazz = &dex->class_def_item[index];
-            sdata[j].obj = &DEFAULT_SDVM_OBJ;
+            //sdata[j].obj = NULL; //&DEFAULT_SDVM_OBJ;
+
             sdata[j].type = VALUE_SDVM_OBJ;
         }
 
@@ -396,6 +466,41 @@ static void parse_class_data_item(DexFileFormat *dex,
             printf("    (None Value)\n");
         }
         dex->class_data_item[index].sdata = sdata;
+#if 0
+        /*
+          - have to check "field_id_item" table, if my parent has static field
+            - iter the field_id_item table, and compared my part with my parent
+              part, if we found match name, I should use my parent's field
+         */
+        if (sfield_size_adjust) {
+            assert(super_clazz->static_fields_size);
+
+            int j = 0, k = 0;
+            const uint super_field_start = super_clazz->field_id_start;
+            const uint super_field_count = super_clazz->field_id_count;
+
+            const uint my_field_start = dex->class_data_item[index].field_id_start;
+            const uint my_field_count = dex->class_data_item[index].field_id_count;
+
+            static_field_data *super_sdata = super_clazz->sdata;
+            static_field_data *my_sdata = dex->class_data_item[index].sdata;
+
+            for (j = 0; j < super_field_count; j++) {
+                for (k = 0; k < my_field_count; k++) {
+                    if (dex->field_id_item[super_field_start + j].name_idx ==
+                        dex->field_id_item[my_field_start + k].name_idx)
+                    {
+                        super_sdata[j].child = &my_sdata[k];
+                        if (is_verbose()) {
+                            printf("    Found children : parent field (%d) -> child field (%d)\n",
+                                   super_field_start + j, my_field_start + k);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+#endif // 0
     }
 }
 
@@ -460,6 +565,17 @@ class_data_item *get_class_data_by_typeid_in_range(DexFileFormat *dex, const int
 
 
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
+    static_field_data *sfield = get_static_field_data_by_fieldid(dex, fieldid);
+    if (sfield) {
+        return sfield->obj;
+
+    } else {
+        /*  the clazz is defined in another dex, e.g. Ljava/lang/System, we
+         *  don't care here, just return a default one */
+        printf("    Warning! use default sdvm obj (field_id = %d)\n", fieldid);
+        return &DEFAULT_SDVM_OBJ;
+    }
+#if 0
     int iter;
     class_data_item *clazz = get_class_data_by_fieldid(dex, fieldid);
     field_id_item *field = get_field_item(dex, fieldid);
@@ -479,8 +595,10 @@ sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
     } else {
         /*  the clazz is defined in another dex, e.g. Ljava/lang/System, we
          *  don't care here, just return a default one */
+        printf("    Warning! use default sdvm obj (field_id = %d)\n", fieldid);
         return &DEFAULT_SDVM_OBJ;
     }
+#endif
 }
 
 static_field_data * get_static_field_data_by_fieldid(DexFileFormat *dex, const int fieldid) {
@@ -488,13 +606,37 @@ static_field_data * get_static_field_data_by_fieldid(DexFileFormat *dex, const i
     class_data_item *clazz = get_class_data_by_fieldid(dex, fieldid);
 
     if (clazz) {
-        for (iter = 0; iter < clazz->static_fields_size; iter++)
+        for (iter = 0; iter < clazz->static_fields_size; iter++) {
             if (clazz->static_fields[iter].field_id == fieldid) {
                 if (is_verbose() > 3) {
                     printf("    field_id = %d --> static_id = %d\n", fieldid, iter);
                 }
                 return &clazz->sdata[iter];
             }
+        }
+
+        /* search my parent class by field name */
+        field_id_item *my_field = get_field_item(dex, fieldid);
+
+        for (iter = 0; iter < clazz->super_class->static_fields_size; iter++) {
+            const uint super_field_id = clazz->super_class->static_fields[iter].field_id;
+
+            field_id_item *super_field = get_field_item(dex, super_field_id);
+            if (super_field->name_idx == my_field->name_idx) {
+                if (is_verbose() > 3) {
+                    printf("    find field from parent class, field_id = %d --> parent field = %d\n",
+                           fieldid, super_field_id);
+                }
+                return &clazz->super_class->sdata[iter];
+            }
+        }
+
+        /*  if this assertion is FALSE, then our implementation have to deal with
+         *  more than 1 level class inheritance (currently, we only process
+         *  1 level (parent, child))
+         *  => have to modify "Found children .." related code
+         */
+        assert(FALSE);
     }
     return NULL;
 }

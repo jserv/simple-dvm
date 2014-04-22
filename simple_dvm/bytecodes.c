@@ -752,13 +752,28 @@ static int op_sput_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
     sdvm_obj *dst_obj = dst_field_data->obj;
 
     assert(dst_field_data && dst_field_data->type == VALUE_SDVM_OBJ);
-    assert(((u8)dst_obj >> 32) == 0);
-    assert(dst_obj->ref_count > 0);
 
-    dst_obj->ref_count --;
+    if (dst_obj) {
+        assert(((u8)dst_obj >> 32) == 0);
+        assert(dst_obj->ref_count > 0);
+        dst_obj->ref_count --;
+    }
+
     dst_field_data->obj = src_obj;
     src_obj->ref_count++;
 
+    /* also need to update children */
+#if 0
+    static_field_data *children = dst_field_data->child;
+    while (children) {
+        if (is_verbose()) {
+            printf("    Update children (field_id %d) obj ptr\n",
+                   children-> );
+        }
+        children->obj = src_obj;
+        children = children->child;
+    }
+#endif
     if (is_verbose()) {
         printf("sput-object v%d, dst field 0x%04x, src_ptr %p, dst_ptr %p\n",
                reg_idx_vx, dst_field_id, src_obj, dst_obj);

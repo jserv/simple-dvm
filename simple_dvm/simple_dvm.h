@@ -26,6 +26,15 @@ typedef unsigned long long u8;
 #define TRUE 1
 #define FALSE 0
 
+/*  I only add my needed define, more in :
+ *  http://source.android.com/devices/tech/dalvik/dex-format.html
+ */
+#define ACC_PUBLIC      0x1
+#define ACC_PRIVATE     0x2
+#define ACC_PROTECTED   0x4
+#define ACC_STATIC      0x8
+#define ACC_FINAL       0x10
+
 extern const uint NO_INDEX;
 
 /* map_list */
@@ -169,16 +178,14 @@ typedef struct _sdvm_obj {
 } sdvm_obj;
 
 typedef struct _static_field_data {
-    union {
-        int         int_value;
-        long        long_value;
-        /*  e.g. Msg.out = System.err;
-         *  out is a static object, err is an object, out will actually point to err
-         *  (My understanding)
-         */
-        sdvm_obj    *obj;
-    };
+    /*  e.g. Msg.out = System.err;
+     *  out is a static object, err is an object, out will actually point to err
+     *  (My understanding)
+     */
+    sdvm_obj    *obj;
     static_data_value_type type;
+    //static_field_data *child;
+    //uint field_id;
 } static_field_data;
 
 typedef struct _class_def_item {
@@ -204,7 +211,11 @@ typedef struct _class_data_item {
     encoded_method *direct_methods;
     encoded_method *virtual_methods;
 
+    struct _class_def_item *clazz_def;
+    struct _class_data_item *super_class;
     static_field_data *sdata;
+    //uint field_id_start;
+    //uint field_id_count;
 
     /*  how many bytes I need to allocate if I instantiate it
      *  (include parent class member)
