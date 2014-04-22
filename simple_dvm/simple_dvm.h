@@ -14,6 +14,7 @@
 
 typedef signed char s1;
 typedef short u2;
+typedef signed short s2;
 typedef long long int s8;
 
 typedef unsigned int u4;
@@ -34,6 +35,7 @@ typedef unsigned long long u8;
 #define ACC_PROTECTED   0x4
 #define ACC_STATIC      0x8
 #define ACC_FINAL       0x10
+#define ACC_CONSTRUCTOR 0x10000
 
 extern const uint NO_INDEX;
 

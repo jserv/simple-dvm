@@ -8,6 +8,9 @@
 #include "simple_dvm.h"
 #include "java_lib.h"
 
+static int op_utils_invoke_35c_parse(DexFileFormat *dex, u1 *ptr, int *pc,
+                                     invoke_parameters *p);
+
 static int find_const_string(DexFileFormat *dex, char *entry)
 {
     int i = 0;
@@ -62,6 +65,29 @@ static int op_move(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
     rx->data[2] = ry->data[2];
     rx->data[3] = ry->data[3];
     *pc = *pc + 2;
+    assert(0);
+    return 0;
+}
+
+/*  0x0D, move-exception vx
+ *  . Move the exception object reference thrown during a method invocation
+ *    into vx
+ *
+ *  . 0D19 - move-exception v25
+ */
+static int op_move_exception(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx = ptr[*pc + 1] & 0x0F;
+    sdvm_obj *obj = NULL;
+
+    load_reg_to(vm, vx, (u1 *)&obj);
+
+    if (is_verbose()) {
+        printf("move-exception v%d (obj %p)\n", vx, obj);
+    }
+    printf("    Warning! move-exception is not implement\n");
+    *pc = *pc + 2;
+    //assert(0);
     return 0;
 }
 
@@ -79,6 +105,45 @@ static int op_goto(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
         printf("goto %d\n", (int) offset);
     }
     *pc = *pc + offset * 2;
+    return 0;
+}
+
+/*  0x31, cmp-long vx, vy, vz
+ *  . Compares the long values in vy and vz and sets the integer value in vx
+ *    accordingly
+ *
+ *  . 3100 0204 - cmp-long v0, v2, v4
+ *    Compares the long values in v2 and v4 then sets v0 accordingly
+ */
+static int op_cmp_long(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx = ptr[*pc + 1];
+    int vy = ptr[*pc + 2];
+    int vz = ptr[*pc + 3];
+
+    long ly = 0, lz = 0;
+
+    u1 *py = (u1 *)&ly;
+    u1 *pz = (u1 *)&lz;
+
+    load_reg_to_long(vm, vy, py + 4);
+    load_reg_to_long(vm, vy + 1, py);
+
+    load_reg_to_long(vm, vz, pz + 4);
+    load_reg_to_long(vm, vz + 1, pz);
+
+    int result = 0;
+    if (ly > lz) { result = 1; }
+    else if (ly < lz) { result = -1; }
+
+    store_to_reg(vm, vx, (u1 *)&result);
+
+    if (is_verbose()) {
+        printf("cmp-long v%d, v%d (%ld), v%d (%ld), cond = %d\n",
+               vx, vy, ly, vz, lz, result);
+    }
+
+    *pc = *pc + 4;
     return 0;
 }
 
@@ -102,6 +167,33 @@ static int op_if_ge(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
         printf("if-ge v%d (%d), v%d (%d), %d\n", reg_idx_vx, x, reg_idx_vy, y, offset);
     }
     if(x >= y)
+        *pc = *pc + offset * 2;
+    else
+        *pc = *pc + 4;
+    assert(0);
+    return 0;
+}
+
+/*  3C, if-gtz vx,target
+ *  . Checks vx and jumps if vx>0.
+ *  . 3C00 1D00 - if-gtz v0, 004a // +001d
+ *    Jumps to the current position+1DH words if v0>0
+ *    004A is the label of the target instruction
+ */
+static int op_if_gtz(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx = ptr[*pc + 1] & 0x0F;
+    int cond = 0;
+    s2 offset = *(s2 *)&ptr[*pc + 2];
+
+    load_reg_to(vm, vx, (u1 *)&cond);
+
+    if (is_verbose()) {
+        printf("if-gtz v%d (cond %d), offset %d\n",
+               vx, cond, offset);
+    }
+
+    if (cond > 0)
         *pc = *pc + offset * 2;
     else
         *pc = *pc + 4;
@@ -190,6 +282,7 @@ static int op_add_int_lit8(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
     x = y + z;
     store_to_reg(vm, reg_idx_vx, (unsigned char *) &x);
     *pc = *pc + 4;
+    assert(0);
     return 0;
 }
 
@@ -209,12 +302,11 @@ static int op_move_result_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr
     u4 val[2] = {0, 0};
 
     load_result_to_double(vm, (u1 *)&val);
-    store_double_to_reg(vm, vx_0, (u1 *)&val[0]);
-    store_double_to_reg(vm, vx_1, (u1 *)&val[1]);
+    store_double_to_reg(vm, vx_0, (u1 *)&val[1]);
+    store_double_to_reg(vm, vx_1, (u1 *)&val[0]);
 
     if (is_verbose())
-        printf("move-result-wide v%d,v%d\n"
-               "    val (%lx)\n",
+        printf("move-result-wide v%d,v%d (val 0x%lx)\n",
                vx_0, vx_1, *(long unsigned int *)val);
 
     *pc = *pc + 2;
@@ -250,7 +342,8 @@ static int op_return_void(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
 {
     if (is_verbose())
         printf("return-void\n");
-    *pc = *pc + 2;
+    //*pc = *pc + 2;
+    *pc = 0xffffffff;
     return 0;
 }
 
@@ -271,7 +364,8 @@ static int op_const_4(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc
         value = 0x0F - value + 1;
         value = -value;
     }
-    store_to_reg(vm, reg_idx_vx, (unsigned char *) &value);
+    //store_to_reg(vm, reg_idx_vx, (unsigned char *) &value);
+    store_long_to_reg(vm, reg_idx_vx, (unsigned char *) &value);
     if (is_verbose())
         printf("const/4 v%d, #int%d\n", reg_idx_vx , value);
     *pc = *pc + 2;
@@ -290,9 +384,35 @@ static int op_const_16(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *p
     reg_idx_vx = ptr[*pc + 1];
     value = (ptr[*pc + 3] << 8 | ptr[*pc + 2]);
 
-    store_to_reg(vm, reg_idx_vx, (unsigned char *) &value);
+    //store_to_reg(vm, reg_idx_vx, (unsigned char *) &value);
+    store_long_to_reg(vm, reg_idx_vx, (unsigned char *) &value);
     if (is_verbose())
         printf("const/16 v%d, #int%d\n", reg_idx_vx, value);
+    *pc = *pc + 4;
+    return 0;
+}
+
+/*  0x16, const-wide/16 vx, lit16
+ *  . Puts the integer constant into vx and vx+1 registers, expanding the
+ *    integer constant into a long constant..
+ *
+ *  . 1600 0A00 - const-wide/16 v0, #long 10
+ *    Moves literal 10 into v0 and v1 registers
+ */
+static int op_const_wide_16(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
+    int vx_0 = ptr[*pc + 1];
+    int vx_1 = vx_0 + 1;
+    s2 val = *(s2 *)&ptr[*pc + 2];
+    long lval = val;
+    u1 *ptr_lval = (u1 *)&lval;
+
+    assert(sizeof(long) == 8);
+    if (is_verbose())
+        printf("const-wide/16 v%d, #int%ld\n", vx_0, lval);
+
+    store_long_to_reg(vm, vx_0, ptr_lval + 4);
+    store_long_to_reg(vm, vx_1, ptr_lval);
+
     *pc = *pc + 4;
     return 0;
 }
@@ -316,8 +436,8 @@ static int op_const_wide_32(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, i
     if (is_verbose())
         printf("const-wide/32 v%d, #int%ld\n", vx_0, lval);
 
-    store_long_to_reg(vm, vx_0, ptr_lval);
-    store_long_to_reg(vm, vx_1, ptr_lval + 4);
+    store_long_to_reg(vm, vx_0, ptr_lval + 4);
+    store_long_to_reg(vm, vx_1, ptr_lval);
     *pc = *pc + 6;
     return 0;
 }
@@ -365,6 +485,31 @@ static int op_const_string(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
     return 0;
 }
 
+/*  0x1f, check-cast vx, type_id
+ *  . Checks whether the object reference in vx can be cast to an instance of a
+ *    class referenced by type_id. Throws ClassCastException if the cast is not
+ *    possible, continues execution otherwise
+ *
+ *  . 1F04 0100 - check-cast v4, Test3 // type@0001
+ *    Checks whether the object reference in v4 can be cast to type@0001
+ *    (entry #1 in the type id table)
+ */
+static int op_check_cast(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx = ptr[*pc + 1];
+    ushort type_id = *(ushort *)&ptr[*pc + 2];
+    sdvm_obj *obj = NULL;
+    load_reg_to(vm, vx, (u1 *)&obj);
+
+    if (is_verbose()) {
+        printf("check-cast v%d, type 0x%x (obj %p)\n",
+               vx, type_id, obj);
+    }
+    printf("    Warning! check-cast is not implement completely\n");
+    *pc = *pc + 4;
+    return 0;
+}
+
 /* 0x22 new-instance vx,type
  * Instantiates an object type and puts
  * the reference of the newly created instance into vx
@@ -395,6 +540,7 @@ static int op_new_instance(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
         class_inst_size = sizeof(sdvm_obj);
     }
     obj = (sdvm_obj *)malloc(class_inst_size);
+    memset(obj, 0, class_inst_size);
 
     obj->ref_count = 1;
     obj->other_data = NULL;
@@ -454,7 +600,7 @@ static int op_new_array(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *
         obj->clazz = clazz;
     }
 
-    store_to_reg(vm, vx, objs);
+    store_to_reg(vm, vx, (u1 *)&objs);
 
     if (is_verbose()) {
         printf("new-array v%d, v%d, type_id 0x%04x, num-elem %d, each elem size %d, ptr %p",
@@ -466,6 +612,61 @@ static int op_new_array(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *
     }
 
     *pc = *pc + 4;
+    return 0;
+}
+
+typedef struct _new_array {
+    sdvm_obj obj;
+    uint count;
+    int array_elem[5];
+} new_array;
+
+/*  0x24 filled-new-array {parameters},type_id
+ *  . Generates a new array of type_id and fills it with the parameters
+ *  . Reference to the newly generated array can be obtained by a
+ *    move-result-object instruction, immediately following the filled-new-array
+ *    instruction
+ *
+ *  . 2420 530D 0000 - filled-new-array {v0,v0},[I // type@0D53
+ *    Generates a new array of type@0D53. The array's size will be 2 and both
+ *    elements will be filled with the contents of v0 register
+ *
+ *  . good ref
+ *      https://ntu-android-2014.hackpad.com/Notes-and-QAs-for-Homework-3-SZVgjTYruKX
+ *      (About Array Creation)
+ *  . http://www.netmite.com/android/mydroid/1.6/dalvik/docs/opcodes/opcode-24-filled-new-array.html
+ */
+static int op_filled_new_array(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    ushort type_id = *(ushort *)&ptr[*pc + 2];
+    type_id_item *type_item = get_type_item(dex, type_id);
+
+    if (0 != strcmp(get_string_data(dex, type_item->descriptor_idx), "[I")) {
+        printf("Error in %s! Currently we only support int array\n",
+               __FUNCTION__);
+        assert(0);
+    }
+
+    op_utils_invoke_35c_parse(dex, ptr, pc, &vm->p);
+
+    new_array *ary = (new_array *)malloc(sizeof(new_array));
+    memset(ary, 0, sizeof(new_array));
+
+    ary->count = vm->p.reg_count;
+    ary->obj.clazz = NULL;  /* this is sdvm internal class */
+    if (is_verbose()) { printf("    ary content ="); }
+
+    int i;
+    for (i = 0; i < ary->count; i++) {
+        load_reg_to(vm, vm->p.reg_idx[i], (u1 *)&ary->array_elem[i]);
+        if (is_verbose()) {
+            printf(" %d, ", ary->array_elem[i]);
+        }
+    }
+    if (is_verbose()) { printf("\n"); }
+
+    store_to_bottom_half_result(vm, (u1 *)&ary);
+    *pc = *pc + 6;
     return 0;
 }
 
@@ -611,6 +812,102 @@ static int op_utils_invoke(char *name, DexFileFormat *dex, simple_dalvik_vm *vm,
     return 0;
 }
 
+/*  0x53, iget-wide vx,vy,field_id
+ *  . Reads an instance field into vx. The instance is referenced by vy
+ *
+ *  . 5320 0400 - iget-wide v0, v2, Test2.l0:J // field@0004
+ *    Reads field@0004 into v0 and v1 registers (entry #4 in the field id
+ *    table). The instance is referenced by v2.
+ */
+static int op_iget_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
+    int vx_0 = ptr[*pc + 1] & 0x0F;
+    int vx_1 = vx_0 + 1;
+    int vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    ushort field_id = *(ushort *)&ptr[*pc + 2];
+    sdvm_obj *obj = NULL;
+    u4 *field_ptr = NULL;
+    int iter;
+
+    load_reg_to(vm, vy, (u1 *)&obj);
+
+    if (is_verbose()) {
+        printf("iget-wide v%d, v%d, field 0x%x (obj %p)\n",
+               vx_0, vy, field_id, obj);
+    }
+
+    for (iter = 0; iter < obj->clazz->instance_fields_size; iter++)
+        if (field_id == obj->clazz->instance_fields[iter].field_id)
+            break;
+
+    assert(iter < obj->clazz->instance_fields_size);
+
+    const uint field_offset = obj->clazz->instance_fields[iter].offset;
+    const uint field_size = obj->clazz->instance_fields[iter].field_size;
+    assert(field_size == sizeof(u8));
+
+    field_ptr = (u4 *)obj + field_offset;
+    store_to_reg(vm, vx_0, (u1 *)&field_ptr[0]);
+    store_to_reg(vm, vx_1, (u1 *)&field_ptr[1]);
+
+    if (is_verbose()) {
+        u4 val[2] = {0, 0};
+
+        load_reg_to_long(vm, vx_0, (u1 *)&val[1]);
+        load_reg_to_long(vm, vx_1, (u1 *)&val[0]);
+        printf("    offset (%d), field_ptr (%p), *field_ptr (%x), val=%lld L\n",
+               field_offset, field_ptr, *field_ptr, *(u8 *)&val);
+    }
+
+    *pc = *pc + 4;
+    return 0;
+}
+
+/*  0x59, iput vx,vy, field_id
+ *  . Puts vx into an instance field. The instance is referenced by vy
+ *
+ *  . 5920 0200 - iput v0,v2, Test2.i6:I // field@0002
+ *    Stores v0 into field@0002 (entry #2 in the field id table).
+ *    The instance is referenced by v2.
+ */
+static int op_iput(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
+    int vx = ptr[*pc + 1] & 0x0F;
+    int vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    ushort field_id = *(ushort *)&ptr[*pc + 2];
+    sdvm_obj *obj = NULL;
+    uint *field_ptr = NULL;
+    int iter;
+    uint val = 0;
+
+    load_reg_to(vm, vx, (u1 *)&val);
+    load_reg_to(vm, vy, (u1 *)&obj);
+
+    if (is_verbose()) {
+        printf("iput v%d, v%d, field 0x%x (obj %p, val 0x%x)\n",
+               vx, vy, field_id, obj, val);
+    }
+
+    for (iter = 0; iter < obj->clazz->instance_fields_size; iter++)
+        if (field_id == obj->clazz->instance_fields[iter].field_id)
+            break;
+
+    assert(iter < obj->clazz->instance_fields_size);
+
+    const uint field_offset = obj->clazz->instance_fields[iter].offset;
+    const uint field_size = obj->clazz->instance_fields[iter].field_size;
+    assert(field_size == sizeof(uint));
+
+    field_ptr = (uint *)obj + field_offset;
+    *field_ptr = val;
+
+    if (is_verbose()) {
+        printf("    offset (%d), field_ptr (%p), *field_ptr (0x%x)\n",
+               field_offset, field_ptr, *field_ptr);
+    }
+
+    *pc = *pc + 4;
+    return 0;
+}
+
 /* iput-wide vx,vy, field_id
  * Puts the wide value located in vx and vx+1 registers into an instance field.
  * The instance is referenced by vy.
@@ -632,8 +929,8 @@ static int op_iput_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *
     sdvm_obj *obj = NULL;
     u1 *field_ptr = NULL;
 
-    load_reg_to_long(vm, vx_0, (u1 *)&val[0]);
-    load_reg_to_long(vm, vx_1, (u1 *)&val[1]);
+    load_reg_to_long(vm, vx_0, (u1 *)&val[1]);
+    load_reg_to_long(vm, vx_1, (u1 *)&val[0]);
     load_reg_to(vm, vy, (u1 *)&obj);
 
     for (iter = 0; iter < obj->clazz->instance_fields_size; iter++)
@@ -643,16 +940,67 @@ static int op_iput_wide(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *
     assert(iter < obj->clazz->instance_fields_size);
 
     const uint field_offset = obj->clazz->instance_fields[iter].offset;
+    const uint field_size = obj->clazz->instance_fields[iter].field_size;
+    assert(field_size == sizeof(u8));
+
     field_ptr = (u1 *)obj + field_offset;
 
     if (is_verbose()) {
         printf("iput-wide v%d, v%d, field 0x%04x (%p)\n"
-               "    (val=%lld L, obj=%p, field_offset=%d)\n",
-               vx_0, vy, field_id, field_ptr, *(u8 *)&val, obj, field_offset);
+               "    (val=%lld L (0x%llx), obj=%p, field_offset=%d)\n",
+               vx_0, vy, field_id, field_ptr, *(u8 *)&val, *(u8 *)&val, obj, field_offset);
     }
 
     load_reg_to(vm, vx_0, field_ptr);
     load_reg_to(vm, vx_1, field_ptr + 4);
+
+    *pc = *pc + 4;
+    return 0;
+}
+
+/*  0x5B, iput-object vx,vy,field_id
+ *  . Puts the object reference in vx into an instance field. The instance is
+ *    referenced by vy
+ *
+ *  . 5B20 0000 - iput-object v0, v2, LineReader.bis:Ljava/io/BufferedInputStream; // field@0000
+ *    Stores the object reference in v0 into field@0000 (entry #0 in the field
+ *    table). The instance is referenced by v2
+ */
+static int op_iput_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx = ptr[*pc + 1] & 0x0F;
+    int vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    ushort field_id = *(ushort *)&ptr[*pc + 2];
+    sdvm_obj *dst_obj = NULL;
+    sdvm_obj **field_ptr = NULL;
+    sdvm_obj *src_obj = NULL;
+    int iter;
+
+    load_reg_to(vm, vx, (u1 *)&src_obj);
+    load_reg_to(vm, vy, (u1 *)&dst_obj);
+
+    if (is_verbose()) {
+        printf("iput-object v%d, v%d, field 0x%x (src obj %p, dst obj %p)\n",
+               vx, vy, field_id, src_obj, dst_obj);
+    }
+
+    for (iter = 0; iter < dst_obj->clazz->instance_fields_size; iter++)
+        if (field_id == dst_obj->clazz->instance_fields[iter].field_id)
+            break;
+
+    assert(iter < dst_obj->clazz->instance_fields_size);
+
+    const uint field_offset = dst_obj->clazz->instance_fields[iter].offset;
+    const uint field_size = dst_obj->clazz->instance_fields[iter].field_size;
+    assert(field_size == sizeof(sdvm_obj *));
+
+    field_ptr = (sdvm_obj **)((u1 *)dst_obj + field_offset);
+    *field_ptr = src_obj;
+
+    if (is_verbose()) {
+        printf("    offset (%d), field_ptr (%p), *field_ptr (%p)\n",
+               field_offset, field_ptr, *field_ptr);
+    }
 
     *pc = *pc + 4;
     return 0;
@@ -704,6 +1052,35 @@ static int op_invoke_static(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, i
     op_utils_invoke("invoke-static", dex, vm, &vm->p);
     /* TODO */
     *pc = *pc + 6;
+    return 0;
+}
+
+/*  0x81 int-to-long vx, vy
+ *  . Converts the integer in vy into a long in vx,vx+1
+ *
+ *  . 8106 - int-to-long v6, v0
+ *    Converts an integer in v0 into a long in v6,v7
+ */
+static int op_int_to_long(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc)
+{
+    int vx_0 = ptr[*pc + 1] & 0x0F;
+    int vx_1 = vx_0 + 1;
+    int vy = (ptr[*pc + 1] >> 4) & 0x0F;
+    int ival = 0;
+    long lval = 0;
+    u1 *pval = (u1 *)&lval;
+
+    load_reg_to_long(vm, vy, (u1 *)&ival);
+    lval = (long)ival;
+
+    store_long_to_reg(vm, vx_0, pval + 4);
+    store_long_to_reg(vm, vx_1, pval);
+
+    if (is_verbose()) {
+        printf("int-to-long v%d, v%d, val %ld\n", vx_0, vy, lval);
+    }
+
+    *pc = *pc + 2;
     return 0;
 }
 
@@ -894,6 +1271,45 @@ static int op_div_int(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc
 
 }
 
+/*  0x9E, div-long vx, vy, vz
+ *  . Calculates vy/vz and puts the result into vx1.
+ *
+ *  . 9E06 0002 - div-long v6, v0, v2
+ *    Divides the long value in v0,v1 with the long value in v2,v3 and puts the
+ *    result into v6,v7.
+ */
+static int op_div_long(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
+    int vx = ptr[*pc + 1];
+    int vy = ptr[*pc + 2];
+    int vz = ptr[*pc + 3];
+
+    long x = 0, y = 0, z = 0;
+    u1 *px = (u1 *)&x;
+    u1 *py = (u1 *)&y;
+    u1 *pz = (u1 *)&z;
+
+    load_reg_to_long(vm, vy, py + 4);
+    load_reg_to_long(vm, vy + 1, py);
+    load_reg_to_long(vm, vz, pz + 4);
+    load_reg_to_long(vm, vz + 1, pz);
+
+    if (z != 0) {
+        x = y / z;
+    }
+
+    store_long_to_reg(vm, vx, px + 4);
+    store_long_to_reg(vm, vx + 1, px);
+
+    if (is_verbose()) {
+        printf("div-long v%d, v%d, v%d (%ld / %ld = %ld)\n",
+               vx, vy, vz, y, z, x);
+    }
+    if (z == 0) { printf("Error ! Divide by zero !\n"); }
+
+    *pc = *pc + 4;
+    return 0;
+}
+
 /* 0x8A double-to-int vx, vy
  * Converts the double value in vy,vy+1 into an integer value in vx.
  * 8A40  - double-to-int v0, v4
@@ -947,6 +1363,43 @@ static int op_add_int_2addr(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, i
     *pc = *pc + 2;
     return 0;
 }
+
+/*  0xBD, mul-long/2addr vx,vy
+ *  . Calculates vx*vy and puts the result into vx.
+ *
+ *  . BD70 - mul-long/2addr v0, v7
+ *    Multiplies the long value in v7,v8 with the long value in v0,v1 and puts
+ *    the result into v0,v1.
+ */
+static int op_mul_long_2addr(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
+    int vx_0 = ptr[*pc + 1] & 0x0F;
+    int vx_1 = vx_0 + 1;
+    int vy_0 = (ptr[*pc + 1] >> 4) & 0x0F;
+    int vy_1 = vy_0 + 1;
+
+    long lx = 0, ly = 0;
+    u1 *px = (u1 *)&lx;
+    u1 *py = (u1 *)&ly;
+
+    load_reg_to_long(vm, vx_0, px + 4);
+    load_reg_to_long(vm, vx_1, px);
+    load_reg_to_long(vm, vy_0, py + 4);
+    load_reg_to_long(vm, vy_1, py);
+
+    if (is_verbose()) {
+        printf("mul-long/2addr v%d, v%d  (%ld)*(%ld) = (%ld)\n",
+               vx_0, vy_0, lx, ly, lx * ly);
+    }
+
+    lx *= ly;
+    store_long_to_reg(vm, vx_0, px + 4);
+    store_long_to_reg(vm, vx_1, px);
+
+    *pc = *pc + 2;
+    return 0;
+}
+
+
 
 /* 0xcb , add-double/2addr
  * Adds vy to vx.
@@ -1054,8 +1507,11 @@ static int op_div_int_lit8(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
 
 static byteCode byteCodes[] = {
     { "move"              , 0x01, 2,  op_move },
+    { "move-exception"    , 0x0d, 2,  op_move_exception },
     { "goto"              , 0x28, 2,  op_goto },
+    { "cmp-long"          , 0x31, 4,  op_cmp_long },
     { "if-ge"             , 0x35, 4,  op_if_ge },
+    { "if-gtz"            , 0x3c, 4,  op_if_gtz },
     { "long-to-int"       , 0x84, 2,  op_long_to_int},
     { "sub-long/2addr"    , 0xbc, 2,  op_sub_long_2addr },
     { "add-int/lit8"      , 0xd8, 4,  op_add_int_lit8 },
@@ -1065,13 +1521,19 @@ static byteCode byteCodes[] = {
     { "return-void"       , 0x0e, 2,  op_return_void },
     { "const/4"           , 0x12, 2,  op_const_4 },
     { "const/16"          , 0x13, 4,  op_const_16 },
+    { "const-wide/16"     , 0x16, 4,  op_const_wide_16 },
     { "const-wide/32"     , 0x17, 6,  op_const_wide_32 },
     { "const-wide/high16" , 0x19, 4,  op_const_wide_high16 },
     { "const-string"      , 0x1a, 4,  op_const_string },
+    { "check-cast"        , 0x1f, 4,  op_check_cast },
     { "new-instance"      , 0x22, 4,  op_new_instance },
     { "new-array"         , 0x23, 4,  op_new_array },
+    { "filled-new-array"  , 0x24, 6,  op_filled_new_array },
 
+    { "iget-wide"         , 0x53, 4,  op_iget_wide },
+    { "iput"              , 0x59, 4,  op_iput },
     { "iput-wide"         , 0x5a, 4,  op_iput_wide },
+    { "iput-object"       , 0x5b, 4,  op_iput_object },
 
     { "sget-object"       , 0x62, 4,  op_sget_object },
     { "sput-object"       , 0x69, 4,  op_sput_object },
@@ -1079,12 +1541,15 @@ static byteCode byteCodes[] = {
     { "invoke-virtual"    , 0x6e, 6,  op_invoke_virtual },
     { "invoke-direct"     , 0x70, 6,  op_invoke_direct },
     { "invoke-static"     , 0x71, 6,  op_invoke_static },
+    { "int-to-long"       , 0x81, 2,  op_int_to_long },
     { "double-to-int"     , 0x8a, 2,  op_double_to_int},
     { "add-int"           , 0x90, 4,  op_add_int },
     { "sub-int"           , 0x91, 4,  op_sub_int },
     { "mul-int"           , 0x92, 4,  op_mul_int },
     { "div-int"           , 0x93, 4,  op_div_int },
+    { "div-long"          , 0x9e, 4,  op_div_long },
     { "add-int/2addr"     , 0xb0, 2,  op_add_int_2addr},
+    { "mul-long/2addr"    , 0xbd, 2,  op_mul_long_2addr },
     { "add-double/2addr"  , 0xcb, 2,  op_add_double_2addr},
     { "mul-double/2addr"  , 0xcd, 2,  op_mul_double_2addr},
     { "div-int/lit8"      , 0xdb, 4,  op_div_int_lit8 }
@@ -1186,5 +1651,26 @@ void simple_dvm_startup(DexFileFormat *dex, simple_dalvik_vm *vm, char *entry)
                m->method_id, m->code_item.insns_size);
 
     memset(vm , 0, sizeof(simple_dalvik_vm));
+
+    /* exec static class initialization first */
+    {
+        int i, j;
+        for (i = 0; i < dex->header.classDefsSize; i++) {
+            for (j = 0; j < dex->class_data_item[i].direct_methods_size; j++) {
+                encoded_method *static_init = &dex->class_data_item[i].direct_methods[j];
+
+                if ((static_init->access_flags & ACC_STATIC) &&
+                    (static_init->access_flags & ACC_CONSTRUCTOR))
+                {
+                    if (is_verbose()) {
+                        //printf("0x%x\n", static_init->access_flags & (ACC_STATIC | ACC_CONSTRUCTOR));
+                        printf("Execute static class (0x%x) initialization\n",
+                               dex->class_data_item[i].clazz_def->class_idx);
+                    }
+                    runMethod(dex, vm, static_init);
+                }
+            }
+        }
+    }
     runMethod(dex, vm, m);
 }

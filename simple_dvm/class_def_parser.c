@@ -106,7 +106,7 @@ static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
 
             } else {
                 /* treat all other case are objects */
-                field_size = sizeof(sdvm_obj);
+                field_size = sizeof(sdvm_obj*);
             }
             sfields[j].field_size = field_size;
             sfields[j].offset = offset_from_this;

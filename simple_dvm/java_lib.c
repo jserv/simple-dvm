@@ -76,6 +76,12 @@ int java_io_buffered_reader(DexFileFormat *dex, simple_dalvik_vm *vm, char *type
     return 0;
 }
 
+int java_lang_exception_print_stack_trace(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    if (is_verbose())
+        printf("    call java_lang_exception_print_stack_trace (%s)\n", type);
+    return 0;
+}
+
 int java_lang_long_valueof(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
     sdvm_obj *obj = NULL;
     sdvm_obj *newobj = create_sdvm_obj();
@@ -207,6 +213,7 @@ static java_lang_method method_table[] = {
     {"Ljava/io/PrintStream;",     "println",  java_io_print_stream_println},
     {"Ljava/io/PrintStream;",     "print",    java_io_print_stream_println},
     {"Ljava/io/PrintStream;",     "flush",    java_io_print_stream_flush},
+    {"Ljava/lang/Exception;",     "printStackTrace", java_lang_exception_print_stack_trace },
     {"Ljava/lang/Long;",          "valueOf",  java_lang_long_valueof},
     {"Ljava/lang/Long;",          "longValue",java_lang_long_long_value},
     {"Ljava/lang/StringBuilder;", "<init>",   java_lang_string_builder_init},
