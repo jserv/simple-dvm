@@ -264,6 +264,12 @@ typedef struct DexFileFormat {
     method_id_item   *method_id_item;
     class_def_item   *class_def_item;
     class_data_item  *class_data_item;
+
+    static_field_data*undef_sdata;  /* for those undefined static obj */
+    uint             undef_id_start;
+    //class_def_item   *undef_class_def_item;
+    //class_data_item  *undef_class_data_item;
+
     map_list         map_list;
     type_list        type_list;
     u1               *data;
@@ -293,6 +299,8 @@ type_list *get_proto_type_list(DexFileFormat *dex, int proto_id);
 /* field_ids parser */
 void parse_field_ids(DexFileFormat *dex, unsigned char *buf, int offset);
 field_id_item *get_field_item(DexFileFormat *dex, int field_id);
+const char *get_field_name(DexFileFormat *dex, int field_id);
+const char *get_class_name(DexFileFormat *dex, int field_id);
 
 /* method ids parser */
 void parse_method_ids(DexFileFormat *dex, unsigned char *buf, int offset);
@@ -321,7 +329,7 @@ typedef struct _simple_dvm_register {
 
 typedef struct _simple_dalvik_vm {
     u1 heap[8192];
-    u4 stack[8192];
+    //u4 stack[8192];
     u2 stack_ptr;
     u1 object_ref[4];
     //sdvm_obj *object_ref;
@@ -357,6 +365,8 @@ u4 pop(simple_dalvik_vm *vm);
 
 void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
                          class_data_item *clazz, invoke_parameters *p);
+uint get_field_size(DexFileFormat *dex, const uint field_id);
+int get_field_type(DexFileFormat *dex, const uint field_id);
 
 sdvm_obj *create_sdvm_obj(void);
 void printRegs(simple_dalvik_vm *vm);
@@ -374,5 +384,30 @@ int is_verbose();
 int enable_verbose();
 int disable_verbose();
 int set_verbose(int l);
+
+/* sdvm internal used class for array object */
+typedef enum _internal_class_type {
+    ICT_NEW_FILLED_ARRAY = 1,
+    ICT_NEW_ARRAY_OBJ,
+    ICT_UNDEF_STATIC_OBJ
+} internal_class_type;
+
+typedef struct _new_filled_array {
+    sdvm_obj obj;
+    uint count;
+    int array_elem[5];
+} new_filled_array;
+
+typedef struct _new_array_object {
+    sdvm_obj obj;
+    uint count;
+    uint elem_size;
+    u4 array[1];
+} new_array_object;
+
+typedef struct _undef_static_obj {
+    sdvm_obj obj;
+    uint field_id;
+} undef_static_obj;
 
 #endif
