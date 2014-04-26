@@ -148,6 +148,7 @@ void store_long_to_reg(simple_dalvik_vm *vm, int id, unsigned char *ptr)
     r->data[3] = ptr[1];
 }
 
+#if 0
 void push(simple_dalvik_vm *vm, const u4 data) {
     if (vm->stack_ptr >= 8192) {
         printf("* Error! Stack Full !\n");
@@ -171,6 +172,7 @@ uint pop(simple_dalvik_vm *vm) {
     }
     return vm->stack[vm->stack_ptr];
 }
+#endif
 
 void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
                          class_data_item *clazz, invoke_parameters *p)
@@ -210,16 +212,42 @@ void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
     assert(p->reg_count);   /* at least we have this pointer */
 
     /* push those be used registers to stack */
-    for (iter = 0; iter < method->code_item.registers_size; iter++) {
+    const uint total_reg_size = method->code_item.registers_size;
+    uint stack[total_reg_size];
+    uint param_value[p->reg_count];
+
+    for (iter = 0; iter < total_reg_size; iter++) {
         u4 *data = (u4 *)&vm->regs[iter].data;
-        push(vm, *data);
+        //push(vm, *data);
+        stack[iter] = *data;
         if (is_verbose())
             printf("    push v%d (0x%x) to stack\n", iter, *data);
     }
 
-    /* copy parameters to the method defined parameter registers */
-    const u1 reg_start_id = method->code_item.registers_size - p->reg_count;
+    /* copy parameters to the method defined parameter registers
+     *  NOTE ! copy to temporary space first, then mv to register
+     *  Consider the case :
+     *      invoke-virtual {v12, v2, v9, v3} method_id 0x0011 Ldhry;,Proc_7,(I)V
+     *      =>
+     *          mv v12 to v2
+     *          mv v2  to v3  <= that's why we need temporary space
+     *          mv v9  to v4
+     *          mv v3  to v5
+     */
     for (iter = 0; iter < p->reg_count; iter++) {
+        param_value[iter] = *(u4 *)&vm->regs[p->reg_idx[iter]].data;
+    }
+
+    const u1 reg_start_id = total_reg_size - p->reg_count;
+    for (iter = 0; iter < p->reg_count; iter++) {
+        u4 *dst = (u4 *)&vm->regs[reg_start_id + iter].data;
+        if (is_verbose()) {
+            printf("    mv v%d (0x%x) to v%d\n", p->reg_idx[iter], param_value[iter], reg_start_id + iter);
+        }
+        *dst = param_value[iter];
+    }
+
+    /*for (iter = 0; iter < p->reg_count; iter++) {
         u4 *data_1 = (u4 *)&vm->regs[reg_start_id + iter].data;
         u4 *data_2 = (u4 *)&vm->regs[p->reg_idx[iter]].data;
 
@@ -227,7 +255,7 @@ void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
             printf("    mv v%d (0x%x) to v%d\n", p->reg_idx[iter], *data_2, reg_start_id + iter);
         }
         *data_1 = *data_2;
-    }
+    }*/
 
     if (is_verbose()) { printf("    save invoke info & pc (0x%x)\n", vm->pc); }
     //push(vm, vm->pc);
@@ -242,8 +270,9 @@ void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
     if (is_verbose()) { printf("    restore invoke info & pc (0x%x)\n", vm->pc); }
 
     /* restore registers */
-    for (iter = method->code_item.registers_size - 1; iter >= 0; iter--) {
-        uint orig_data = pop(vm);
+    for (iter = total_reg_size - 1; iter >= 0; iter--) {
+        //uint orig_data = pop(vm);
+        uint orig_data = stack[iter];
         u4 *data = (u4 *)&vm->regs[iter].data;
         *data = orig_data;
 
@@ -251,6 +280,78 @@ void invoke_clazz_method(DexFileFormat *dex, simple_dalvik_vm *vm,
             printf("    pop (0x%x) back to v%d\n", *data, iter);
         }
     }
+}
+
+uint get_field_size(DexFileFormat *dex, const uint field_id) {
+    uint field_size = 0;
+    field_id_item *field = get_field_item(dex, field_id);
+    char *type_name = dex->string_data_item[
+        dex->type_id_item[field->type_idx].descriptor_idx].data;
+    assert(field);
+
+    if (strlen(type_name) == 1) {
+        /* ref : android dex-format, "TypeDescriptor Semantics" */
+        switch (type_name[0]) {
+            case 'B' :
+            case 'C' :
+            case 'Z' :
+                field_size = 1;
+                break;
+            case 'S' :
+                field_size = 2;
+                break;
+            case 'I' :
+            case 'F' :
+                field_size = 4;
+                break;
+            case 'J' :
+            case 'D' :
+                field_size = 8;
+                break;
+
+            default :
+                printf("Error! Un-support field type (%c)\n", type_name[0]);
+                assert(0);
+        }
+
+    } else {
+        /* treat all other case are objects */
+        field_size = sizeof(sdvm_obj*);
+    }
+
+    return field_size;
+}
+
+int get_field_type(DexFileFormat *dex, const uint field_id) {
+    uint field_size = 0;
+    field_id_item *field = get_field_item(dex, field_id);
+    char *type_name = dex->string_data_item[
+        dex->type_id_item[field->type_idx].descriptor_idx].data;
+    assert(field);
+
+    if (strlen(type_name) == 1) {
+        /* ref : android dex-format, "TypeDescriptor Semantics" */
+        switch (type_name[0]) {
+            case 'B' : return VALUE_BOOLEAN;
+            case 'C' : return VALUE_CHAR;
+            case 'Z' : return VALUE_BYTE;
+            case 'S' : return VALUE_SHORT;
+            case 'I' : return VALUE_INT;
+            case 'F' : return VALUE_FLOAT;
+            case 'J' : return VALUE_LONG;
+            case 'D' : return VALUE_DOUBLE;
+
+            default :
+                printf("Error! Un-support field type (%c)\n", type_name[0]);
+                assert(0);
+        }
+
+    } else {
+        /* treat all other case are objects */
+        return VALUE_SDVM_OBJ;
+    }
+
+    return -1;
 }
 
 sdvm_obj *create_sdvm_obj() {
