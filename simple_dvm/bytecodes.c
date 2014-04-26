@@ -312,10 +312,10 @@ static int op_add_int_lit8(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, in
     int reg_idx_vx = 0;
     int reg_idx_vy = 0;
     int x = 0, y = 0 ;
-    int z = 0;
+    s1 z = 0;
     reg_idx_vx = ptr[*pc + 1];
     reg_idx_vy = ptr[*pc + 2];
-    z = ptr[*pc + 3];
+    z = (s1)ptr[*pc + 3];
     /* x = y + z */
     load_reg_to(vm, reg_idx_vy, (unsigned char *) &y);
     x = y + z;
@@ -973,6 +973,7 @@ static int op_aget(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int *pc) {
     load_reg_to(vm, vz, (u1 *)&index);
 
     assert(obj->elem_size == 4);
+    assert(obj->count > index);
     value = obj->array[index];
     store_to_reg(vm, vx, (u1 *)&value);
     if (is_verbose()) {
@@ -996,19 +997,22 @@ static int op_aget_object(DexFileFormat *dex, simple_dalvik_vm *vm, u1 *ptr, int
     int vy = ptr[*pc + 2];
     int vz = ptr[*pc + 3];
 
-    int index, value;
-    new_array_object* obj = NULL;
+    int index;
+    multi_dim_array_object* obj = NULL;
 
     load_reg_to(vm, vy, (u1 *)&obj);
     load_reg_to(vm, vz, (u1 *)&index);
 
-    //assert(obj->elem_size == 4);
-    //value = obj->array[index];
+    assert(obj->count > index);
+    assert(obj->elem_size == sizeof(void *));
+    assert(obj->obj.other_data == (void *)ICT_MULTI_DIM_ARRAY_OBJ);
+
+    new_array_object *ary_obj = obj->array[index];
     //store_to_reg(vm, vx, (u1 *)&value);
-    store_to_reg(vm, vx, (u1 *)&obj);
+    store_to_reg(vm, vx, (u1 *)&ary_obj);
     if (is_verbose()) {
-        printf("aget-object v%d, v%d, v%d (v%d = v%d (%p)->[v%d (%d)] (= %d))\n",
-               vx, vy, vz, vx, vy, obj, vz, index, value);
+        printf("aget-object v%d, v%d, v%d (v%d = v%d (%p)->[v%d (%d)] (= %p))\n",
+               vx, vy, vz, vx, vy, obj, vz, index, ary_obj);
     }
     *pc = *pc + 4;
     return 0;

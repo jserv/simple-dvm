@@ -389,6 +389,7 @@ int set_verbose(int l);
 typedef enum _internal_class_type {
     ICT_NEW_FILLED_ARRAY = 1,
     ICT_NEW_ARRAY_OBJ,
+    ICT_MULTI_DIM_ARRAY_OBJ,
     ICT_UNDEF_STATIC_OBJ
 } internal_class_type;
 
@@ -404,6 +405,13 @@ typedef struct _new_array_object {
     uint elem_size;
     u4 array[1];
 } new_array_object;
+
+typedef struct _multi_dim_array_object {
+    sdvm_obj obj;
+    uint count;
+    uint elem_size;
+    new_array_object *array[1];
+} multi_dim_array_object;
 
 typedef struct _undef_static_obj {
     sdvm_obj obj;

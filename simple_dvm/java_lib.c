@@ -120,18 +120,36 @@ int java_lang_long_long_value(DexFileFormat *dex, simple_dalvik_vm *vm, char *ty
 /*  e.g.
  *  invoke-static {v1, v0} method_id 0x002e Ljava/lang/reflect/Array;,newInstance,(Ljava/lang/Class;)Ljava/lang/Object;
  *  move-result-object v0
+ *
+ *  Notes! If we use 2-dim array, e.g. int [128][128], then its array layout is
+ *  looks like this :
+ *      int[0] -> new_array_object -> 1-d int 128
+ *      int[1] -> new_array_object -> 1-d int 128
+ *      ..
+ *
+ *  If we want to get its element, e.g. int [8][7], then we will :
+ *      int *ptr = &int[8][0]
+ *      ptr[7]
+ *
+ *      => (v6 int [128][128] object, v1 = 8)
+ *      aget-object v0, v6, v1
+ *      add-int/lit8 v2, v1, #int -1 // #ff
+ *      aget v3, v0, v2
+ *
  */
 int java_lang_reflect_array_new_instance(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
     sdvm_obj *obj = NULL;
     new_filled_array *array_size_info = NULL;
     uint total_size = 0, elem_size = 0;
-    uint num_elem = 1;
 
     load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&obj);
     load_reg_to(vm, vm->p.reg_idx[1], (u1 *)&array_size_info);
 
-    for (int j = 0; j < array_size_info->count; j++)
-        num_elem *= array_size_info->array_elem[j];
+    //for (int j = 0; j < array_size_info->count; j++)
+    //    num_elem *= array_size_info->array_elem[j];
+
+    /* TODO array dim > 2 (< 2 ??) */
+    assert(array_size_info->count == 2);
 
     if (obj->clazz) {
         /* TODO ? */
@@ -150,25 +168,52 @@ int java_lang_reflect_array_new_instance(DexFileFormat *dex, simple_dalvik_vm *v
     }
     assert(elem_size);
 
-    total_size = sizeof(new_array_object) + elem_size * num_elem;
+    multi_dim_array_object *mul_dim_ary_obj = NULL;
+    const uint num_elem = array_size_info->array_elem[0];
+    {
+        total_size = sizeof(multi_dim_array_object) + sizeof(void *) * num_elem;
 
-    new_array_object *ary_obj = (new_array_object *)malloc(total_size);
-    memset(ary_obj, 0, total_size);
+        mul_dim_ary_obj = (multi_dim_array_object *)malloc(total_size);
+        memset(mul_dim_ary_obj, 0, total_size);
 
-    ary_obj->count = num_elem;
-    ary_obj->elem_size = elem_size;
-    ary_obj->obj.ref_count = 1;
-    ary_obj->obj.other_data = (void *)ICT_NEW_ARRAY_OBJ;
-    store_to_bottom_half_result(vm, (u1 *)&ary_obj);
+        mul_dim_ary_obj->count = num_elem;
+        mul_dim_ary_obj->elem_size = sizeof(void *);
+        mul_dim_ary_obj->obj.ref_count = 1;
+        mul_dim_ary_obj->obj.other_data = (void *)ICT_MULTI_DIM_ARRAY_OBJ;
 
-    if (is_verbose()) {
-        printf("    call java_lang_reflect_array_new_instance (%s)\n"
-               "    object %p, total size %d = obj_size %d + elem_size %d * dim = ",
-               type, obj, total_size, (uint)sizeof(new_array_object), elem_size);
-        for (int i = 0; i < array_size_info->count; i++)
-            printf("%d, ", array_size_info->array_elem[i]);
-        printf("\n");
+        if (is_verbose()) {
+            printf("    call java_lang_reflect_array_new_instance (%s)\n"
+                   "    object %p, total size %d = obj_size %d + elem_size %d * dim = ",
+                   type, obj, total_size, (int)sizeof(multi_dim_array_object), (int)sizeof(void *));
+            //for (int i = 0; i < array_size_info->count; i++)
+                printf("%d, ", array_size_info->array_elem[0]);
+            printf("\n");
+        }
+        store_to_bottom_half_result(vm, (u1 *)&mul_dim_ary_obj);
     }
+
+    {
+        const int each_1d_num_elem = array_size_info->array_elem[1];
+        const int each_1d_size = elem_size * each_1d_num_elem;
+        const int each_1d_total_size = sizeof(new_array_object) + each_1d_size;
+
+        for (int j = 0; j < num_elem; j++) {
+            new_array_object *ary_obj = (new_array_object *)malloc(each_1d_total_size);
+            memset(ary_obj, 0, each_1d_total_size);
+
+            ary_obj->count = each_1d_num_elem;
+            ary_obj->elem_size = elem_size;
+            ary_obj->obj.ref_count = 1;
+            ary_obj->obj.other_data = (void *)ICT_NEW_ARRAY_OBJ;
+            mul_dim_ary_obj->array[j] = ary_obj;
+
+            if (is_verbose()) {
+                printf("    Create 1d array object %p, num_elem %d, elem_size %d\n",
+                       ary_obj, each_1d_num_elem, elem_size);
+            }
+        }
+    }
+
     return 0;
 }
 
