@@ -54,7 +54,6 @@ static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
     int j, i = offset;
     int field_id = 0;
     int num_byte = 0;
-    //uint offset_from_this = 0; //OBJ_BASE_SIZE;
     encoded_field * sfields = (encoded_field *)
         malloc(sizeof(encoded_field) * count);
 
@@ -68,49 +67,12 @@ static encoded_field * load_encoded_field(DexFileFormat *dex, int is_static,
         sfields[j].access_flags = get_uleb128_len(buf, i, &num_byte);
         i += num_byte;
 
-        if (is_static) {
-            sfields[j].field_size = 0;
-            sfields[j].offset = 0;
-        } else {
-            /* how many bytes I am ? */
-            uint field_size = 0;
-            field_id_item *field = get_field_item(dex, field_id);
-            char *type_name = dex->string_data_item[
-                dex->type_id_item[field->type_idx].descriptor_idx].data;
-            assert(field);
+        sfields[j].offset = 0;
+        sfields[j].field_size = get_field_size(dex, field_id);
 
-            if (strlen(type_name) == 1) {
-                /* ref : android dex-format, "TypeDescriptor Semantics" */
-                switch (type_name[0]) {
-                    case 'B' :
-                    case 'C' :
-                    case 'Z' :
-                        field_size = 1;
-                        break;
-                    case 'S' :
-                        field_size = 2;
-                        break;
-                    case 'I' :
-                    case 'F' :
-                        field_size = 4;
-                        break;
-                    case 'J' :
-                    case 'D' :
-                        field_size = 8;
-                        break;
-
-                    default :
-                        printf("Error! Un-support field type (%c)\n", type_name[0]);
-                        assert(0);
-                }
-
-            } else {
-                /* treat all other case are objects */
-                field_size = sizeof(sdvm_obj*);
-            }
-            sfields[j].field_size = field_size;
+        if (is_static == FALSE) {
             sfields[j].offset = offset_from_this;
-            offset_from_this += field_size;
+            offset_from_this += sfields[j].field_size;
         }
 
         if (is_verbose() > 3)
@@ -169,7 +131,8 @@ static long read_encoded_value (unsigned char *buf, int *offset, int byteLength)
     return (value << shift) >> shift;
 }
 
-void parse_static_data_item(unsigned char *buf, int static_data_offset,
+/* return num_elements */
+int parse_static_data_item(unsigned char *buf, int static_data_offset,
                             static_field_data *sdata)
 {
     assert(static_data_offset > 0);
@@ -196,6 +159,7 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
      */
     int len = get_uleb128_len(buf, offset, &size);
     offset += size;
+    assert(len);
 
     printf("    offset = 0x%x, len = %d\n", static_data_offset, len);
     for (j = 0; j < len; ++j) {
@@ -263,6 +227,7 @@ void parse_static_data_item(unsigned char *buf, int static_data_offset,
                    valueType, valueArgument, *val);
         }
     }
+    return len;
 }
 
 static void parse_class_data_item(DexFileFormat *dex,
@@ -444,6 +409,7 @@ static void parse_class_data_item(DexFileFormat *dex,
     dex->class_data_item[index].sdata = NULL;
     if (static_fields_size > 0) {
         int j;
+        int actual_init_count = 0;
         const uint static_values_off = dex->class_def_item[index].static_values_off;
         if (is_verbose() > 3) {
             printf("  - load static data value\n");
@@ -452,18 +418,30 @@ static void parse_class_data_item(DexFileFormat *dex,
         static_field_data *sdata = (static_field_data *)malloc(sizeof(static_field_data) * static_fields_size);
         memset(sdata, 0, sizeof(static_field_data) * static_fields_size);
 
-        for (j = 0; j < static_fields_size; j++) {
-            //sdata[j].obj.ref_count = 1;
-            //sdata[j].obj.clazz = &dex->class_def_item[index];
-            //sdata[j].obj = NULL; //&DEFAULT_SDVM_OBJ;
-
-            sdata[j].type = VALUE_SDVM_OBJ;
-        }
-
         if (static_values_off > 0) {
-            parse_static_data_item(buf, static_values_off, sdata);
+            actual_init_count = parse_static_data_item(buf, static_values_off, sdata);
         } else {
             printf("    (None Value)\n");
+        }
+
+        /*  - If there are fewer elements in the array than there are static fields,
+         *    then the leftover fields are initialized with a type-appropriate 0 or
+         *    null
+         */
+        for (j = actual_init_count; j < static_fields_size; j++) {
+            encoded_field *sfield = &dex->class_data_item[index].static_fields[j];
+            const uint field_id = sfield->field_id;
+            sdata[j].type = get_field_type(dex, field_id);
+
+            //if (sdata[j].type == VALUE_SDVM_OBJ) {
+            sdata[j].obj = create_sdvm_obj();
+            sdata[j].obj->ref_count = 1;
+            sdata[j].obj->clazz = &dex->class_data_item[index];
+            //}
+            if (is_verbose() > 3) {
+                printf("    init field %d with type (%s) appropriate 0, size %d, obj %p\n",
+                       field_id, get_field_name(dex, field_id), sfield->field_size, sdata[j].obj);
+            }
         }
         dex->class_data_item[index].sdata = sdata;
 #if 0
@@ -531,6 +509,89 @@ void parse_class_defs(DexFileFormat *dex, unsigned char *buf, int offset)
         parse_class_data_item(dex, buf,
                               dex->class_def_item[i].class_data_off - sizeof(DexHeader), i);
     }
+
+    /*  handle those undefined class, e.g. Ljava/lang/Class; ..
+     *  NOTE! we don't support import other .dex now, so just use very simple
+     *  way to handle these undefined class
+     */
+    {
+        int iter;
+        ushort skip_from_clsid = 0;
+        const class_def_item *class_def = dex->class_def_item;
+        const field_id_item *field_item = dex->field_id_item;
+
+        /* skip those item we had processed */
+        assert(dex->header.classDefsSize);
+        assert(dex->header.fieldIdsSize);
+
+        skip_from_clsid = class_def[dex->header.classDefsSize - 1].class_idx;
+
+        for (iter = 0; iter < dex->header.fieldIdsSize; iter++) {
+            if (skip_from_clsid < field_item[iter].class_idx)
+                break;
+        }
+
+        /* ok, we have undefined class items */
+        if (iter < dex->header.fieldIdsSize) {
+            int j;
+            const int undef_num = dex->header.fieldIdsSize - iter;
+            const int undef_start = iter;
+
+            dex->undef_id_start = undef_start;
+            dex->undef_sdata = (static_field_data *)
+                malloc(sizeof(static_field_data) * undef_num);
+            memset(dex->undef_sdata, 0, sizeof(static_field_data) * undef_num);
+
+            if (is_verbose()) {
+                printf("  - undef class static objects : \n");
+            }
+            for (j = 0; j < undef_num; j++) {
+                undef_static_obj *undef_obj = (undef_static_obj *)
+                    malloc(sizeof(undef_static_obj));
+
+                dex->undef_sdata[j].obj = (sdvm_obj *)undef_obj;
+                undef_obj->obj.ref_count = 1;
+                undef_obj->obj.other_data = (void *)ICT_UNDEF_STATIC_OBJ;
+                undef_obj->field_id = undef_start + j;
+
+                if (is_verbose()) {
+                    printf("    . field_id %d, obj %p \n",
+                           undef_obj->field_id, undef_obj);
+                }
+            }
+#if 0
+            const int undef_start = iter;
+            int undef_num = 1;
+
+            /* count how many undef items */
+            iter++;
+            for (; iter < dex->header.fieldIdsSize; iter++) {
+                ushort prev = field_item[iter - 1].class_idx;
+                ushort cur = field_item[iter].class_idx;
+                if (prev != cur) { undef_num++; }
+            }
+            int undef_num = dex->header.fieldIdsSize - iter;
+
+            /* create undefined clazz def for them */
+            int j;
+            class_def_item *undef_class_def = malloc(sizeof(class_def_item) * undef_num);
+            class_data_item *undef_class_data = malloc(sizeof(class_data_item) * undef_num);
+
+            memset(undef_class_def, 0, sizeof(class_def_item) * undef_num);
+            memset(undef_class_data, 0, sizeof(class_data_item) * undef_num);
+
+            int cur_clsid = field_item[undef_start].class_idx;
+            for (j = 0; j < undef_num; j++) {
+                undef_class_def[j].class_idx = cur_clsid;
+                //undef_class_data[j].class_inst_size = 0;
+                undef_class_data[j].clazz_def = &undef_class_def[j];
+            }
+
+            dex->undef_class_def_item = undef_class_def;
+            dex->undef_class_data_item = undef_class_data;
+#endif
+        }
+    }
 }
 
 class_data_item *get_class_data_by_fieldid(DexFileFormat *dex, const int fieldid) {
@@ -566,15 +627,20 @@ class_data_item *get_class_data_by_typeid_in_range(DexFileFormat *dex, const int
 
 sdvm_obj * get_static_obj_by_fieldid(DexFileFormat *dex, const int fieldid) {
     static_field_data *sfield = get_static_field_data_by_fieldid(dex, fieldid);
+    assert(sfield);
+    return sfield->obj;
+#if 0
     if (sfield) {
         return sfield->obj;
-
-    } else {
+    }
+    else {
         /*  the clazz is defined in another dex, e.g. Ljava/lang/System, we
          *  don't care here, just return a default one */
         printf("    Warning! use default sdvm obj (field_id = %d)\n", fieldid);
         return &DEFAULT_SDVM_OBJ;
     }
+#endif
+
 #if 0
     int iter;
     class_data_item *clazz = get_class_data_by_fieldid(dex, fieldid);
@@ -637,7 +703,25 @@ static_field_data * get_static_field_data_by_fieldid(DexFileFormat *dex, const i
          *  => have to modify "Found children .." related code
          */
         assert(FALSE);
+
+    } else if (dex->undef_sdata) {
+        /* try to search undefined class pool */
+        const uint count = dex->header.fieldIdsSize - dex->undef_id_start;
+        uint i;
+
+        for (i = 0; i < count; i++) {
+            if (dex->undef_id_start + i == fieldid) {
+                if (is_verbose() > 3) {
+                    printf("    find field %d from undefined class, static data %p\n",
+                           fieldid, &dex->undef_sdata[i]);
+                }
+                return &dex->undef_sdata[i];
+            }
+        }
     }
+
+    /* should not possible hit here */
+    assert(FALSE);
     return NULL;
 }
 
