@@ -117,6 +117,127 @@ int java_lang_long_long_value(DexFileFormat *dex, simple_dalvik_vm *vm, char *ty
     return 0;
 }
 
+/*  e.g.
+ *  invoke-static {v1, v0} method_id 0x002e Ljava/lang/reflect/Array;,newInstance,(Ljava/lang/Class;)Ljava/lang/Object;
+ *  move-result-object v0
+ */
+int java_lang_reflect_array_new_instance(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    sdvm_obj *obj = NULL;
+    new_filled_array *array_size_info = NULL;
+    uint total_size = 0, elem_size = 0;
+    uint num_elem = 1;
+
+    load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&obj);
+    load_reg_to(vm, vm->p.reg_idx[1], (u1 *)&array_size_info);
+
+    for (int j = 0; j < array_size_info->count; j++)
+        num_elem *= array_size_info->array_elem[j];
+
+    if (obj->clazz) {
+        /* TODO ? */
+        assert(0);
+    } else {
+        undef_static_obj *undef_obj = (undef_static_obj *)obj;
+        assert(obj->other_data == (void *)ICT_UNDEF_STATIC_OBJ);
+
+        const char *name = get_class_name(dex, undef_obj->field_id);
+        if (0 == strcmp(name, "Ljava/lang/Integer;")) {
+            elem_size = sizeof(int);
+        } else {
+            /* TODO */
+            assert(0);
+        }
+    }
+    assert(elem_size);
+
+    total_size = sizeof(new_array_object) + elem_size * num_elem;
+
+    new_array_object *ary_obj = (new_array_object *)malloc(total_size);
+    memset(ary_obj, 0, total_size);
+
+    ary_obj->count = num_elem;
+    ary_obj->elem_size = elem_size;
+    ary_obj->obj.ref_count = 1;
+    ary_obj->obj.other_data = (void *)ICT_NEW_ARRAY_OBJ;
+    store_to_bottom_half_result(vm, (u1 *)&ary_obj);
+
+    if (is_verbose()) {
+        printf("    call java_lang_reflect_array_new_instance (%s)\n"
+               "    object %p, total size %d = obj_size %d + elem_size %d * dim = ",
+               type, obj, total_size, (uint)sizeof(new_array_object), elem_size);
+        for (int i = 0; i < array_size_info->count; i++)
+            printf("%d, ", array_size_info->array_elem[i]);
+        printf("\n");
+    }
+    return 0;
+}
+
+/* e.g. invoke-virtual {v8, v2}, Ljava/lang/String;.charAt:(I)C // method@0026
+ *  v8 : string object reference, v2 : index to string
+ *
+ *  ref case from dhrystone :
+ *      const-string v1, "DHRYSTONE PROGRAM, SOME STRING" // string@0010
+ *      iput-object v1, v0, LRecord_Type;.String_Comp:Ljava/lang/String; // field@0018
+ *
+ *      invoke-virtual {v8, v2}, Ljava/lang/String;.charAt:(I)C // method@0026
+ *      move-result v5
+ */
+int java_lang_string_char_at(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    int string_id;
+    int index;
+
+    load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&string_id);
+    load_reg_to(vm, vm->p.reg_idx[1], (u1 *)&index);
+
+    /* If we hit this assertion, means the string is not const-string, it is
+     * actually a string object, we may need to define an internal string class
+     * to handle it */
+    assert(string_id < dex->header.stringIdsSize);
+
+    const char *str = dex->string_data_item[string_id].data;
+    int val = str[index];
+
+    store_to_bottom_half_result(vm, (u1 *)&val);
+
+    if (is_verbose()) {
+        printf("    call java.lang.String.charAt\n"
+               "    string_id %d, index %d = %c\n",
+               string_id, index, (char)val);
+    }
+    return 0;
+}
+
+/* e.g. invoke-virtual {v8, v9}, Ljava/lang/String;.compareTo:(Ljava/lang/String;)I // method@0027
+ */
+int java_lang_string_compare_to(DexFileFormat *dex, simple_dalvik_vm *vm, char *type) {
+    int string_id_1;
+    int string_id_2;
+
+    load_reg_to(vm, vm->p.reg_idx[0], (u1 *)&string_id_1);
+    load_reg_to(vm, vm->p.reg_idx[1], (u1 *)&string_id_2);
+
+    /* If we hit this assertion, means the string is not const-string, it is
+     * actually a string object, we may need to define an internal string class
+     * to handle it */
+    assert(string_id_1 < dex->header.stringIdsSize);
+    assert(string_id_2 < dex->header.stringIdsSize);
+
+    /* http://www.tutorialspoint.com/java/java_string_compareto.htm */
+    const char *str_1 = dex->string_data_item[string_id_1].data;
+    const char *str_2 = dex->string_data_item[string_id_2].data;
+
+    int val = strcmp(str_1, str_2);
+    store_to_bottom_half_result(vm, (u1 *)&val);
+
+    if (is_verbose()) {
+        printf("    call java.lang.String.compareTo\n"
+               "    str_id 1 = 0x%x, str_id 2 = 0x%x, result = %d\n",
+               string_id_1, string_id_2, val);
+    }
+
+    return 0;
+}
+
 /* java.io.PrintStream.println */
 static char buf[1024];
 static int buf_ptr = 0;
@@ -163,15 +284,33 @@ int java_lang_string_builder_init(DexFileFormat *dex, simple_dalvik_vm *vm, char
 int java_lang_string_builder_append(DexFileFormat *dex, simple_dalvik_vm *vm, char *type)
 {
     invoke_parameters *p = &vm->p;
-    int string_id = 0;
     if (is_verbose())
         printf("    call java.lang.StringBuilder.append\n");
-    load_reg_to(vm, p->reg_idx[1], (unsigned char *) &string_id);
+
+    assert(p->reg_count == 2 || p->reg_count == 3);
+
     if (type != 0) {
         if (strcmp(type, "Ljava/lang/String;") == 0) {
+            int string_id = 0;
+            load_reg_to(vm, p->reg_idx[1], (unsigned char *) &string_id);
             buf_ptr += snprintf(buf + buf_ptr, 1024, "%s", get_string_data(dex, string_id));
-        } else if (strcmp(type, "I") == 0) {
-            buf_ptr += snprintf(buf + buf_ptr, 1024, "%d", string_id);
+
+        } else {
+            int val[2] = {0, 0};
+
+            if (p->reg_count == 2) {
+                load_reg_to(vm, p->reg_idx[1], (u1 *) &val[0]);
+                buf_ptr += snprintf(buf + buf_ptr, 1024, "%d", val[0]);
+
+            } else {
+                load_reg_to_long(vm, p->reg_idx[1], (u1 *) &val[1]);
+                load_reg_to_long(vm, p->reg_idx[2], (u1 *) &val[0]);
+                buf_ptr += snprintf(buf + buf_ptr, 1024, "%lld", *(u8 *)&val);
+            }
+
+            /*if (strcmp(type, "I") == 0) {
+                buf_ptr += snprintf(buf + buf_ptr, 1024, "%d", string_id);
+            }*/
         }
     }
     return 0;
@@ -216,6 +355,9 @@ static java_lang_method method_table[] = {
     {"Ljava/lang/Exception;",     "printStackTrace", java_lang_exception_print_stack_trace },
     {"Ljava/lang/Long;",          "valueOf",  java_lang_long_valueof},
     {"Ljava/lang/Long;",          "longValue",java_lang_long_long_value},
+    {"Ljava/lang/reflect/Array;", "newInstance", java_lang_reflect_array_new_instance },
+    {"Ljava/lang/String;",        "charAt",   java_lang_string_char_at },
+    {"Ljava/lang/String;",        "compareTo",java_lang_string_compare_to },
     {"Ljava/lang/StringBuilder;", "<init>",   java_lang_string_builder_init},
     {"Ljava/lang/StringBuilder;", "append",   java_lang_string_builder_append},
     {"Ljava/lang/StringBuilder;", "toString", java_lang_string_builder_to_string},
@@ -243,6 +385,8 @@ int invoke_java_lang_library(DexFileFormat *dex, simple_dalvik_vm *vm,
             printf("    invoke %s/%s %s\n", method->clzname, method->methodname, type);
         method->method_runtime(dex, vm, type);
         return 1;
+    } else {
+        printf("    Warning ! The method %s/%s is not found!\n", method->clzname, method->methodname);
     }
     return 0;
 }
