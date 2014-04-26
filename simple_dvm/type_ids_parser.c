@@ -152,3 +152,16 @@ field_id_item *get_field_item(DexFileFormat *dex, int field_id)
         return &dex->field_id_item[field_id];
     return 0;
 }
+
+const char *get_field_name(DexFileFormat *dex, int field_id) {
+    field_id_item *field = get_field_item(dex, field_id);
+    return dex->string_data_item[field->name_idx].data;
+}
+
+const char *get_class_name(DexFileFormat *dex, int field_id) {
+    field_id_item *field = get_field_item(dex, field_id);
+    return dex->string_data_item[
+               dex->type_id_item[
+                   field->class_idx].descriptor_idx].data;
+}
+
