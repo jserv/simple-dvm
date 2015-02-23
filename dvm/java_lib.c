@@ -297,12 +297,12 @@ int java_io_print_stream_println(DexFileFormat *dex, simple_dalvik_vm *vm, char 
 
     load_reg_to(vm, p->reg_idx[1], (unsigned char *) &string_id);
     if (use_buf == 1) {
-        printf("    %s\n", buf);
+        printf("%s\n", buf);
         use_buf = 0;
         memset(buf, 0, 1024);
         buf_ptr = 0;
     } else {
-        printf("    %s\n", get_string_data(dex, string_id));
+        printf("%s\n", get_string_data(dex, string_id));
     }
     return 0;
 }
