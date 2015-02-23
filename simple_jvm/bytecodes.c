@@ -16,41 +16,10 @@ extern StackFrame stackFrame;
 extern LocalVariables localVariables;
 
 static int run = 1;
-static int get_integer_parameter(StackFrame *stack, SimpleConstantPool *p)
-{
-    int value = 0;
-    if (is_ref_entry(stack)) {
-        int index = popInt(stack);
-        value = get_integer_from_constant_pool(p, index);
-    } else {
-        value = popInt(stack);
-    }
-    return value;
-}
 
-static long long get_long_parameter(StackFrame *stack, SimpleConstantPool *p)
-{
-    long long value = 0;
-    if (is_ref_entry(stack)) {
-        int index = popInt(stack);
-        value = get_long_from_constant_pool(p, index);
-    } else {
-        value = popLong(stack);
-    }
-    return value;
-}
-
-static float get_float_parameter(StackFrame *stack, SimpleConstantPool *p)
-{
-    float value = 0;
-    if (is_ref_entry(stack)) {
-        int index = popInt(stack);
-        value = get_float_from_constant_pool(p, index);
-    } else {
-        value = popFloat(stack);
-    }
-    return value;
-}
+#if SIMPLE_JVM_DEBUG
+static void printCodeAttribute(CodeAttribute *ca, SimpleConstantPool *p);
+#endif
 
 static double get_double_parameter(StackFrame *stack, SimpleConstantPool *p)
 {
@@ -356,7 +325,7 @@ static int op_irem(unsigned char **opCode, StackFrame *stack, SimpleConstantPool
     int result = 0;
     result = value2 % value1;
 #if SIMPLE_JVM_DEBUG
-    printf("irem: %d % %d = %d\n", value2, value1, result);
+    printf("irem: %d mod %d = %d\n", value2, value1, result);
 #endif
     pushInt(stack, result);
     *opCode = *opCode + 1;
@@ -488,9 +457,10 @@ static int op_invokestatic(unsigned char **opCode, StackFrame *stack, SimpleCons
             printf("call class %s\n", clsName);
             printf("call method %s\n", method_name);
             printf("call method type %s\n", method_type);
+	    int ret =
 #endif
-            int ret = invoke_java_lang_library(stack, p,
-                                               clsName, method_name, method_type);
+            invoke_java_lang_library(stack, p,
+                                     clsName, method_name, method_type);
 #if SIMPLE_JVM_DEBUG
             if (ret) {
                 printf("invoke java lang library successful\n");
@@ -627,12 +597,12 @@ static int op_sipush(unsigned char **opCode, StackFrame *stack, SimpleConstantPo
 /* op_new */
 static int op_new(unsigned char **opCode, StackFrame *stack, SimpleConstantPool *p)
 {
+#if SIMPLE_JVM_DEBUG
     u2 object_ref;
     unsigned char tmp[2];
     tmp[0] = opCode[0][1];
     tmp[1] = opCode[0][2];
     object_ref = tmp[0] << 8 | tmp[1];
-#if SIMPLE_JVM_DEBUG
     printf("new: new object_ref %d\n", object_ref);
 #endif
     *opCode = *opCode + 3;
@@ -688,15 +658,6 @@ static byteCode byteCodes[] = {
 };
 static size_t byteCode_size = sizeof(byteCodes) / sizeof(byteCode);
 
-static char *findOpCode(unsigned char op)
-{
-    int i;
-    for (i = 0; i < byteCode_size ; i++)
-        if (op == byteCodes[i].opCode)
-            return byteCodes[i].name;
-    return 0;
-}
-
 static opCodeFunc findOpCodeFunc(unsigned char op)
 {
     int i;
@@ -706,6 +667,7 @@ static opCodeFunc findOpCodeFunc(unsigned char op)
     return 0;
 }
 
+#if SIMPLE_JVM_DEBUG
 static int findOpCodeOffset(unsigned char op)
 {
     int i;
@@ -714,6 +676,7 @@ static int findOpCodeOffset(unsigned char op)
             return byteCodes[i].offset;
     return 0;
 }
+#endif
 
 static int convertToCodeAttribute(CodeAttribute *ca, AttributeInfo *attr)
 {
@@ -734,13 +697,13 @@ static int convertToCodeAttribute(CodeAttribute *ca, AttributeInfo *attr)
     ca->code_length = tmp[0] << 24 | tmp[1] << 16 | tmp[2] << 8 | tmp[3];
     ca->code = (unsigned char *) malloc(sizeof(unsigned char) * ca->code_length);
     memcpy(ca->code, attr->info + info_p, ca->code_length);
+    return 0;
 }
 
 int executeMethod(MethodInfo *startup, StackFrame *stack, SimpleConstantPool *p)
 {
     int i = 0;
     int j = 0;
-    int tmp = 0;
     char name[255];
     CodeAttribute ca;
     memset(&ca, 0 , sizeof(CodeAttribute));
@@ -770,12 +733,21 @@ int executeMethod(MethodInfo *startup, StackFrame *stack, SimpleConstantPool *p)
     return 0;
 }
 
+#if SIMPLE_JVM_DEBUG
+static char *findOpCode(unsigned char op)
+{
+    int i;
+    for (i = 0; i < byteCode_size ; i++)
+        if (op == byteCodes[i].opCode)
+            return byteCodes[i].name;
+    return 0;
+}
+
 static void printCodeAttribute(CodeAttribute *ca, SimpleConstantPool *p)
 {
     int i = 0;
     int tmp = 0;
     char name[255];
-    unsigned char opCode = 0;
     getUTF8String(p, ca->attribute_name_index, 255, name);
     printf("attribute name : %s\n", name);
     printf("attribute length: %d\n", ca->attribute_length);
@@ -797,3 +769,4 @@ static void printCodeAttribute(CodeAttribute *ca, SimpleConstantPool *p)
         i += tmp;
     } while (i < ca->code_length);
 }
+#endif

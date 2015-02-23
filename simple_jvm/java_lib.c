@@ -5,6 +5,7 @@
  */
 
 #include "java_lib.h"
+#include <time.h>
 
 int java_lang_math_random(StackFrame *stack, SimpleConstantPool *p, char *type)
 {

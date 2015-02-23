@@ -31,12 +31,12 @@ static int parseMethodAttr(MethodInfo *ptr, FILE *fp)
         tmp->info = (unsigned char *) malloc(sizeof(unsigned char) * tmp->attribute_length);
         fread(tmp->info, tmp->attribute_length, 1, fp);
     }
+    return 0;
 }
 
 /* parse Method Pool */
 static int parseMP(FILE *fp)
 {
-    int i = 0;
     unsigned char short_tmp[2];
     MethodInfo *ptr = &simpleMethodPool.method[simpleMethodPool.method_used];
 
@@ -70,12 +70,11 @@ MethodInfo *findMethodInPool(SimpleConstantPool *p,
                              char *method_name, int size)
 {
     int i;
-    int cmp_size = 0;
     if (mp->method_used > 0) {
         for (i = 0; i < mp->method_used; i++) {
             ConstantUTF8 *name = findUTF8(p, mp->method[i].name_index);
             if (size == name->string_size &&
-                strncmp(method_name, name->ptr, size) == 0)
+                strncmp(method_name, (char *) name->ptr, size) == 0)
                     return &mp->method[i];
         }
     }
@@ -106,7 +105,9 @@ void printMethodPool(SimpleConstantPool *p, SimpleMethodPool *mp)
         for (i = 0; i < mp->method_used; i++) {
             ConstantUTF8 *ptr = findUTF8(p, mp->method[i].name_index);
             ConstantUTF8 *ptr2 = findUTF8(p, mp->method[i].descriptor_index);
+#if 0
             ConstantMethodRef *mRefPtr = findMethodRef(p, mp->method[i].name_index);
+#endif
             printf("method[%d], attr_count = %d, %d",
                    i, mp->method[i].attributes_count,
                    mp->method[i].name_index);

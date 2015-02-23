@@ -34,6 +34,7 @@ static int parseCPString(FILE *fp, int index)
     fread(ptr->ptr , ptr->string_size , 1, fp);
     ptr->ptr[ptr->string_size] = '\0';
     simpleConstantPool.utf8_used++;
+    return 0;
 }
 
 /* parse Integer */
@@ -50,6 +51,7 @@ static int parseCPInteger(FILE *fp, int index)
     ptr->value = (tmp[0] << 24 | tmp[1] << 16 | tmp[2] << 8 | tmp[3]);
 
     simpleConstantPool.integer_used++;
+    return 0;
 }
 
 /* parse Float */
@@ -66,6 +68,7 @@ static int parseCPFloat(FILE *fp, int index)
     ptr->value = (tmp[0] << 24 | tmp[1] << 16 | tmp[2] << 8 | tmp[3]);
 
     simpleConstantPool.float_used++;
+    return 0;
 }
 
 /* parse LONG */
@@ -82,6 +85,7 @@ static int parseCPLong(FILE *fp, int index)
     memcpy(&ptr->value, tmp, 8);
 
     simpleConstantPool.long_used++;
+    return 0;
 }
 
 /* parse Double */
@@ -102,6 +106,7 @@ static int parseCPDouble(FILE *fp, int index)
     memcpy(&ptr->value, tmp2, 8);
 
     simpleConstantPool.double_used++;
+    return 0;
 }
 
 /* parse Constant Pool Class */
@@ -118,6 +123,7 @@ static int parseCPClass(FILE *fp, int index)
     ptr->stringIndex = short_tmp[0] << 8 | short_tmp[1];
 
     simpleConstantPool.clasz_used++;
+    return 0;
 }
 
 /* parse Constant Pool String Ref */
@@ -134,6 +140,7 @@ static int parseCPStringRef(FILE *fp, int index)
     ptr->stringIndex = short_tmp[0] << 8 | short_tmp[1];
 
     simpleConstantPool.stringRef_used++;
+    return 0;
 }
 
 /* parse Constant Pool Field */
@@ -153,6 +160,7 @@ static int parseCPField(FILE *fp, int index)
     ptr->nameAndTypeIndex = short_tmp[0] << 8 | short_tmp[1];
 
     simpleConstantPool.field_used++;
+    return 0;
 }
 
 /* parse Constant Pool Method */
@@ -172,6 +180,7 @@ static int parseCPMethod(FILE *fp, int index)
     ptr->nameAndTypeIndex = short_tmp[0] << 8 | short_tmp[1];
 
     simpleConstantPool.method_used++;
+    return 0;
 }
 
 /* parse Constant Pool Interface */
@@ -191,6 +200,7 @@ static int parseCPInterface(FILE *fp, int index)
     ptr->nameAndTypeIndex = short_tmp[0] << 8 | short_tmp[1];
 
     simpleConstantPool.interface_used++;
+    return 0;
 }
 
 /* parse Constant Pool Interface */
@@ -210,17 +220,15 @@ static int parseCPNameAndType(FILE *fp, int index)
     ptr->typeIndex = short_tmp[0] << 8 | short_tmp[1];
 
     simpleConstantPool.name_and_type_used++;
+    return 0;
 }
 
 int parseConstantPool(FILE *fp, int count)
 {
     unsigned char tag = 0;
     int i = 0 ;
-    int offset_start = 0;
-    int offset_end = 0;
     for (i = 1 ; i < count ; i++) {
         fread(&tag, 1, 1, fp);
-        offset_start = ftell(fp);
         switch (tag) {
         case CONSTANT_UTF8:
             parseCPString(fp, i);
@@ -262,7 +270,6 @@ int parseConstantPool(FILE *fp, int count)
             fseek(fp, -1, SEEK_CUR);
             break;
         };
-        offset_end = ftell(fp);
     }
     return 0;
 }
