@@ -1,6 +1,7 @@
 /*
  * Simple Dalvik Virtual Machine Implementation
  *
+ * Copyright (C) 2014 cycheng <createinfinite@yahoo.com.tw>
  * Copyright (C) 2014 Jim Huang <jserv.tw@gmail.com>
  * Copyright (C) 2013 Chun-Yu Wang <wicanr2@gmail.com>
  */
