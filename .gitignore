@@ -6,8 +6,8 @@
 .deps
 .libs
 *.a
-simple_jvm/jvm
-simple_dvm/dvm
+jvm/jvm
+dvm/dvm
 
 # tests
 .output-jvm
